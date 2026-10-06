@@ -7,11 +7,13 @@ Microservice in the AIEIC Lab Multi-Agent System. Generates lab materials (spec,
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # fill in Azure credentials
+cp .env.example .env   # defaults to LLM_BACKEND=mock; add Azure credentials to use a real model
 python -m uvicorn main:app --host 127.0.0.1 --port 8003 --reload
 ```
 
-Set `LLM_BACKEND=mock` in `.env` to run without Azure credentials.
+Set `LLM_BACKEND=mock` in `.env` to run without Azure credentials. In mock mode generation returns fixed stub content (a placeholder spec and the same three quiz questions) and ignores `request-changes` feedback, so the version bumps but the quiz does not change.
+
+`requirements.txt` pins `aieic-shared` from a git URL. Nothing in this service imports it, and the service runs without it; if the install fails because that repository is private, remove that line locally.
 
 ## Endpoints
 
@@ -19,6 +21,7 @@ Set `LLM_BACKEND=mock` in `.env` to run without Azure credentials.
 |---|---|---|
 | GET  | `/health` | Health check |
 | POST | `/curriculum/generate` | Generate lab from objectives; preserves any uploaded RAG context |
+| POST | `/curriculum/generate-with-material` | Same as generate, as multipart form with optional PDF `files` (no `material_weight`) |
 | GET  | `/curriculum/{lab_id}` | Fetch current `LabMaterial` |
 | POST | `/curriculum/{lab_id}/upload-material` | Upload one or more PDFs → extract text as generation context |
 | POST | `/curriculum/{lab_id}/upload-instructions` | Store instructor instructions as generation context |
@@ -60,3 +63,11 @@ docker run --env-file .env -p 8003:8003 curriculum-designer
 ```
 
 Target: Azure Container Apps.
+
+Deployment notes:
+- **Health check:** `GET /health`. The service listens on `0.0.0.0:8003`.
+- **Environment:** `LLM_BACKEND`, `AZURE_OPENAI_*` (see `.env.example`). Pass them with `--env` or `--env-file`. `docker run --env-file .env` fails if that file does not exist, so use `--env LLM_BACKEND=mock` for a quick try. Keep real credentials out of the image: add `.env` to a `.dockerignore` before building, since `COPY . .` would otherwise bake a local `.env` into it.
+- **Storage is in memory.** A restart or a scale-out to more than one replica loses or splits labs. Run a single replica until the Cosmos store exists.
+- **Generation is synchronous** and can take 30-60 seconds on a real model, so raise any proxy or ingress timeout above that.
+- **CORS** currently allows every origin (`allow_origins=["*"]` in `main.py`, marked TODO). Restrict it before exposing the service publicly.
+- There is no authentication; `instructor_id`, `approved_by` and `requested_by` are client-supplied strings.
