@@ -31,8 +31,13 @@ class Settings(BaseSettings):
     llm_backend: str = "azure"
 
     # ── Storage ───────────────────────────────────────────────────────────────
-    # v0.1: in-memory.  v0.2: swap for "cosmos" without touching the rest.
+    # "memory" = dict, lost on restart.  "mongo" = MongoDB (see docs/data-model.md).
     storage_backend: str = "memory"
+
+    # Connection string from MongoDB Atlas (Connect → Drivers → Python).
+    # Required only when storage_backend == "mongo".
+    mongodb_uri: str = ""
+    mongodb_db: str = "aied"
 
 
 settings = Settings()

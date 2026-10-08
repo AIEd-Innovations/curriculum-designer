@@ -11,10 +11,18 @@ import io
 import json
 import html
 from datetime import datetime, timezone
+from uuid import uuid4
 
 import pypdf
 from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
 
+from models.files import (
+    DeleteFileResponse,
+    LabFile,
+    LabFileListResponse,
+    LabFileSummary,
+    build_storage_key,
+)
 from models.curriculum import (
     ApproveRequest,
     CheckTyposResponse,
@@ -46,8 +54,11 @@ def _not_found(lab_id: str) -> HTTPException:
 
 
 async def _extract_pdf_text(file: UploadFile) -> str:
-    filename = file.filename or "uploaded.pdf"
     data = await file.read()
+    return _extract_pdf_text_from_bytes(data, file.filename or "uploaded.pdf")
+
+
+def _extract_pdf_text_from_bytes(data: bytes, filename: str) -> str:
     try:
         reader = pypdf.PdfReader(io.BytesIO(data))
     except Exception as exc:
@@ -346,6 +357,50 @@ async def _extract_and_merge_pdf_text(files: list[UploadFile]) -> str:
     return "\n\n" + ("-" * 64 + "\n\n").join(sections)
 
 
+async def _persist_uploaded_files(
+    request: Request,
+    uploaded_files: list[UploadFile],
+    lab_id: str,
+    course_id: str,
+    uploaded_by: str | None = None,
+    kind: str = "material",
+) -> list[LabFile]:
+    """Record each upload in `lab_files` and return the stored documents.
+
+    The bytes are not written here — `storage_key` points at the shared file
+    storage (task 3), which owns them. What we keep is the metadata and the
+    extracted text, so re-generation never has to re-parse a PDF.
+    """
+    file_store = request.app.state.file_store
+    now = datetime.now(timezone.utc)
+    stored: list[LabFile] = []
+
+    for i, uploaded in enumerate(uploaded_files, start=1):
+        data = await uploaded.read()
+        filename = uploaded.filename or f"document_{i}.pdf"
+        text = _extract_pdf_text_from_bytes(data, filename)
+
+        file_id = str(uuid4())
+        record = LabFile(
+            file_id=file_id,
+            lab_id=lab_id,
+            course_id=course_id,
+            filename=filename,
+            content_type=uploaded.content_type or "application/pdf",
+            size_bytes=len(data),
+            kind=kind,
+            uploaded_by=uploaded_by,
+            uploaded_at=now,
+            storage_key=build_storage_key(course_id, lab_id, file_id, filename),
+            extracted_text=text,
+            char_count=len(text),
+        )
+        file_store.add(record)
+        stored.append(record)
+
+    return stored
+
+
 # ── Graph invocation helper ───────────────────────────────────────────────────
 
 async def _run_graph(
@@ -448,7 +503,15 @@ async def generate_with_material(
     material_content: str | None = None
     uploaded_files = _collect_uploaded_files(file=file, files=files)
     if uploaded_files:
-        material_content = await _extract_and_merge_pdf_text(uploaded_files)
+        await _persist_uploaded_files(
+            request,
+            uploaded_files,
+            lab_id=lab_id,
+            course_id=course_id,
+            uploaded_by=instructor_id,
+            kind="material",
+        )
+        material_content = request.app.state.file_store.merged_text(lab_id, course_id)
 
     # Preserve existing context when no new PDF is provided
     existing = store.get(lab_id)
@@ -557,7 +620,17 @@ async def upload_material(
             },
         )
 
-    merged_text = await _extract_and_merge_pdf_text(uploaded_files)
+    await _persist_uploaded_files(
+        request,
+        uploaded_files,
+        lab_id=lab_id,
+        course_id=material.course_id,
+        kind="material",
+    )
+
+    # material_content is derived: every "material" file attached to this lab,
+    # in upload order. Rebuilding it here keeps it correct after a delete too.
+    merged_text = request.app.state.file_store.merged_text(lab_id, material.course_id)
     material.material_content = merged_text
     material.last_updated = datetime.now(timezone.utc)
     store.put(material)
@@ -591,6 +664,56 @@ async def upload_instructions(
         field="agent_instructions",
         chars_stored=len(body.instructions),
         message="Agent instructions stored. Re-generate to apply.",
+    )
+
+
+@router.get("/{lab_id}/files", response_model=LabFileListResponse)
+async def list_files(lab_id: str, request: Request) -> LabFileListResponse:
+    """Files attached to this lab — what the instructor UI lists.
+
+    Metadata only: the extracted text can be megabytes and no caller needs it.
+    """
+    material = _get_lab_or_404(request, lab_id)
+    files = request.app.state.file_store.list_for_lab(lab_id, material.course_id)
+
+    return LabFileListResponse(
+        lab_id=lab_id,
+        course_id=material.course_id,
+        files=[LabFileSummary.from_file(f) for f in files],
+        total_chars=sum(f.char_count for f in files),
+    )
+
+
+@router.delete("/{lab_id}/files/{file_id}", response_model=DeleteFileResponse)
+async def delete_file(lab_id: str, file_id: str, request: Request) -> DeleteFileResponse:
+    """Detach a file and rebuild material_content from what is left."""
+    store = request.app.state.store
+    file_store = request.app.state.file_store
+    material = _get_lab_or_404(request, lab_id)
+
+    existing = file_store.get(file_id)
+    if existing is None or existing.lab_id != lab_id:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "code": "FILE_NOT_FOUND",
+                    "message": f"No file '{file_id}' on lab '{lab_id}'",
+                    "agent": "curriculum-designer",
+                }
+            },
+        )
+
+    file_store.delete(file_id)
+
+    material.material_content = file_store.merged_text(lab_id, material.course_id) or None
+    material.last_updated = datetime.now(timezone.utc)
+    store.put(material)
+
+    return DeleteFileResponse(
+        file_id=file_id,
+        deleted=True,
+        message=f"'{existing.filename}' removed. Re-generate to apply.",
     )
 
 
