@@ -33,7 +33,7 @@ from config import settings
 from graphs.generation import build_generation_graph
 from routers.curriculum import router as curriculum_router
 from services.llm import build_llm_client
-from services.storage import build_store
+from services.storage import build_file_store, build_store
 
 logging.basicConfig(
     level=logging.INFO,
@@ -51,7 +51,12 @@ async def lifespan(app: FastAPI):
     logger.info("─" * 60)
 
     # ── Storage backend ───────────────────────────────────────────────────────
-    app.state.store = build_store(settings.storage_backend)
+    app.state.store = build_store(
+        settings.storage_backend, settings.mongodb_uri, settings.mongodb_db
+    )
+    app.state.file_store = build_file_store(
+        settings.storage_backend, settings.mongodb_uri, settings.mongodb_db
+    )
     logger.info(f"  ✓  storage: {settings.storage_backend}")
 
     # ── LLM client ────────────────────────────────────────────────────────────
