@@ -23,6 +23,7 @@ from threading import Lock
 
 from models.curriculum import LabMaterial
 from models.files import LabFile
+from services.schema import COLLECTIONS
 
 
 # ── Lab materials ─────────────────────────────────────────────────────────────
@@ -92,10 +93,10 @@ class MongoStore(CurriculumStore):
         self._ensure_indexes()
 
     def _ensure_indexes(self) -> None:
-        # The real primary key. Unique so a duplicate (course, lab) is rejected by
-        # the database rather than silently overwritten.
-        self._labs.create_index([("course_id", 1), ("lab_id", 1)], unique=True)
-        self._labs.create_index([("course_id", 1), ("approval_status", 1)])
+        # Defined once in services/schema.py, alongside the validators and the
+        # tables in docs/schema.md.
+        for keys, unique, _why in COLLECTIONS["labs"]["indexes"]:
+            self._labs.create_index(keys, unique=unique)
 
     @staticmethod
     def _to_document(material: LabMaterial) -> dict:
@@ -216,8 +217,8 @@ class MongoFileStore(LabFileStore):
         self._ensure_indexes()
 
     def _ensure_indexes(self) -> None:
-        self._files.create_index([("file_id", 1)], unique=True)
-        self._files.create_index([("course_id", 1), ("lab_id", 1), ("uploaded_at", -1)])
+        for keys, unique, _why in COLLECTIONS["lab_files"]["indexes"]:
+            self._files.create_index(keys, unique=unique)
 
     @staticmethod
     def _from_document(doc: dict | None) -> LabFile | None:
