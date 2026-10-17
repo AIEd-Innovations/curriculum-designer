@@ -179,14 +179,17 @@ class MockLLMClient:
                             material_content: str | None, agent_instructions: str | None,
                             feedback: str | None = None, num_questions: int = 5) -> list[QuizQuestion]:
         obj = objectives[0] if objectives else "the topic"
+        # The mock cannot rewrite questions, but it can show that the feedback arrived: without this a
+        # refinement only bumps the version and nothing visible changes, which looks like a bug.
+        note = f' (Mock revision for the feedback: "{feedback.strip()}")' if feedback and feedback.strip() else ""
         return [
-            QuizQuestion(id="q1", question=f"[Mock] Define a key concept from: {obj}.",
+            QuizQuestion(id="q1", question=f"[Mock] Define a key concept from: {obj}.{note}",
                          type="short_answer", expected_answer="mock answer",
                          rubric_points=10, difficulty="basic", learning_objective_ref=obj),
-            QuizQuestion(id="q2", question="[Mock] Explain the intermediate concept.",
+            QuizQuestion(id="q2", question=f"[Mock] Explain the intermediate concept.{note}",
                          type="short_answer", expected_answer="mock answer",
                          rubric_points=15, difficulty="intermediate", learning_objective_ref=obj),
-            QuizQuestion(id="q3", question="[Mock] Implement the challenge task in pseudocode.",
+            QuizQuestion(id="q3", question=f"[Mock] Implement the challenge task in pseudocode.{note}",
                          type="code", expected_answer="mock answer",
                          rubric_points=20, difficulty="challenge",
                          learning_objective_ref=objectives[-1] if objectives else obj),
