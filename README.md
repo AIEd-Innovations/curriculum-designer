@@ -7,7 +7,8 @@ Microservice in the AIEIC Lab Multi-Agent System. Generates lab materials (spec,
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # defaults to LLM_BACKEND=mock; add Azure credentials to use a real model
+cp .env.example .env   # LLM_BACKEND=mock by default; add Azure credentials to use a real model
+# .env.example selects MongoDB (STORAGE_BACKEND=mongo). For a quick local try without a database, set STORAGE_BACKEND=memory in .env.
 python -m uvicorn main:app --host 127.0.0.1 --port 8003 --reload
 ```
 
@@ -40,7 +41,7 @@ config.py                pydantic-settings (reads from .env)
 models/curriculum.py     LabMaterial, QuizQuestion, Rubric, upload/response models
 routers/curriculum.py    All endpoints
 services/
-  storage.py             MemoryStore (default) — swap to CosmosStore in v0.2
+  storage.py             MemoryStore (default) or MongoStore (STORAGE_BACKEND=mongo); see docs/data-model.md
   llm.py                 AzureLLMClient / MockLLMClient; build_llm_client() factory
   prompts.py             Prompt builders for 5 LLM tasks (return system, user tuples)
 graphs/generation.py     LangGraph pipeline: spec → quiz → rubric → self_review
@@ -66,8 +67,8 @@ Target: Azure Container Apps.
 
 Deployment notes:
 - **Health check:** `GET /health`. The service listens on `0.0.0.0:8003`.
-- **Environment:** `LLM_BACKEND`, `AZURE_OPENAI_*` (see `.env.example`). Pass them with `--env` or `--env-file`. `docker run --env-file .env` fails if that file does not exist, so use `--env LLM_BACKEND=mock` for a quick try. Keep real credentials out of the image: add `.env` to a `.dockerignore` before building, since `COPY . .` would otherwise bake a local `.env` into it.
-- **Storage is in memory.** A restart or a scale-out to more than one replica loses or splits labs. Run a single replica until the Cosmos store exists.
+- **Environment:** `LLM_BACKEND`, `AZURE_OPENAI_*`, `STORAGE_BACKEND` and, for MongoDB, `MONGODB_URI` / `MONGODB_DB` (see `.env.example`). Pass them with `--env` or `--env-file`. `docker run --env-file .env` fails if that file does not exist, so use `--env LLM_BACKEND=mock` for a quick try. Keep real credentials out of the image: add `.env` to a `.dockerignore` before building, since `COPY . .` would otherwise bake a local `.env` into it.
+- **Storage:** with `STORAGE_BACKEND=memory` (the code default) a restart loses all labs and more than one replica would each hold different labs, so run a single replica. With `STORAGE_BACKEND=mongo` labs and uploaded files persist in MongoDB (set `MONGODB_URI`, keep the connection string out of the image and out of git).
 - **Generation is synchronous** and can take 30-60 seconds on a real model, so raise any proxy or ingress timeout above that.
 - **CORS** currently allows every origin (`allow_origins=["*"]` in `main.py`, marked TODO). Restrict it before exposing the service publicly.
 - There is no authentication; `instructor_id`, `approved_by` and `requested_by` are client-supplied strings.
