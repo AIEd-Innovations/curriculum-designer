@@ -12,7 +12,7 @@ cp .env.example .env   # LLM_BACKEND=mock by default; add Azure credentials to u
 python -m uvicorn main:app --host 127.0.0.1 --port 8003 --reload
 ```
 
-Set `LLM_BACKEND=mock` in `.env` to run without Azure credentials. In mock mode generation returns fixed stub content (a placeholder spec and the same three quiz questions) and ignores `request-changes` feedback, so the version bumps but the quiz does not change.
+Set `LLM_BACKEND=mock` in `.env` to run without Azure credentials. In mock mode generation returns fixed stub content (a placeholder spec and the same three quiz questions) and cannot rewrite questions. A `request-changes` still bumps the version, and the mock puts your feedback inside each question (`(Mock revision for the feedback: ...)`) so you can see it arrived.
 
 `requirements.txt` installs `aieic-shared` straight from a public GitHub repository, so `pip` needs `git` (the Dockerfile installs it for this reason). Nothing in this service imports that package and the service runs without it; to skip it locally, remove that line.
 
