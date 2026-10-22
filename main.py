@@ -32,7 +32,7 @@ from fastapi.responses import JSONResponse
 from config import settings
 from graphs.generation import build_generation_graph
 from routers.curriculum import router as curriculum_router
-from services.llm import build_llm_client
+from services.llm import LLMAuthError, LLMError, build_llm_client
 from services.storage import build_file_store, build_store
 
 logging.basicConfig(
@@ -118,6 +118,34 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             }
         }
     return JSONResponse(status_code=exc.status_code, content=body)
+
+
+@app.exception_handler(LLMAuthError)
+async def llm_auth_exception_handler(request: Request, exc: LLMAuthError):
+    return JSONResponse(
+        status_code=401,
+        content={
+            "error": {
+                "code": "LLM_KEY_REJECTED",
+                "message": "The model provider rejected the API key.",
+                "agent": settings.service_name,
+            }
+        },
+    )
+
+
+@app.exception_handler(LLMError)
+async def llm_exception_handler(request: Request, exc: LLMError):
+    return JSONResponse(
+        status_code=502,
+        content={
+            "error": {
+                "code": "LLM_ERROR",
+                "message": str(exc)[:500],
+                "agent": settings.service_name,
+            }
+        },
+    )
 
 
 @app.exception_handler(RequestValidationError)

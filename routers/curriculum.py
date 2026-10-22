@@ -34,6 +34,8 @@ from models.curriculum import (
     UploadInstructionsRequest,
 )
 
+from services.llm_models import SUPPORTED_MODELS, build_client_for_key
+
 router = APIRouter(prefix="/curriculum", tags=["curriculum"])
 
 
@@ -401,6 +403,49 @@ async def _persist_uploaded_files(
     return stored
 
 
+# ── LLM selection ─────────────────────────────────────────────────────────────
+
+def _bad_llm_request(code: str, message: str) -> HTTPException:
+    return HTTPException(
+        status_code=400,
+        detail={"error": {"code": code, "message": message, "agent": "curriculum-designer"}},
+    )
+
+
+def _llm_for(request: Request):
+    """The model client for this request.
+
+    With an `X-LLM-API-Key` header the call uses the teacher's own key and the
+    model named in `X-LLM-Model`. The key lives only for this request: it is
+    never stored or logged. Without one, the server's default client is used.
+    """
+    api_key = (request.headers.get("X-LLM-API-Key") or "").strip()
+    if not api_key:
+        return request.app.state.llm_client
+    model_id = (request.headers.get("X-LLM-Model") or "").strip()
+    if not model_id:
+        raise _bad_llm_request(
+            "MODEL_REQUIRED", "X-LLM-Model is required when X-LLM-API-Key is sent."
+        )
+    if model_id not in SUPPORTED_MODELS:
+        raise _bad_llm_request(
+            "UNSUPPORTED_MODEL",
+            f"Unsupported model '{model_id}'. See GET /curriculum/models.",
+        )
+    return build_client_for_key(model_id, api_key)
+
+
+@router.get("/models")
+async def list_models() -> dict:
+    """Models a teacher can pick when supplying their own API key."""
+    return {
+        "models": [
+            {"id": m.id, "vendor": m.vendor, "name": m.name}
+            for m in SUPPORTED_MODELS.values()
+        ]
+    }
+
+
 # ── Graph invocation helper ───────────────────────────────────────────────────
 
 async def _run_graph(
@@ -413,7 +458,7 @@ async def _run_graph(
     material_weight: str = "balanced",
 ) -> dict:
     graph = request.app.state.generation_graph
-    llm_client = request.app.state.llm_client
+    llm_client = _llm_for(request)
     initial_state = {
         "request": req,
         "material_content": material_content,
@@ -796,7 +841,7 @@ async def check_typos(lab_id: str, request: Request) -> CheckTyposResponse:
     if material is None:
         raise _not_found(lab_id)
 
-    llm = request.app.state.llm_client
+    llm = _llm_for(request)
     issues = await llm.check_typos(
         spec_markdown=material.spec_markdown,
         quiz=material.quiz,
