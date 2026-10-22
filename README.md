@@ -41,7 +41,7 @@ Any endpoint that calls the model (`generate`, `generate-with-material`, `reques
 
 The key is used for that request only. It is never stored or logged, and it is scrubbed from error messages. Without the headers the server's own backend (`LLM_BACKEND`, Azure by default) is used. A key the vendor rejects returns `401` (`LLM_KEY_REJECTED`); any other model failure returns `502` (`LLM_ERROR`). The model list matches the assessment agent's.
 
-Keys travel in headers, so serve this over HTTPS and replace the `CORS_ORIGINS`-style wildcard (`allow_origins=["*"]` in `main.py`) with the UI's origin before exposing it.
+Keys travel in headers, so serve this over HTTPS and restrict the CORS wildcard (`allow_origins=["*"]` in `main.py`) to the UI's origin before exposing it.
 
 ## Architecture
 
