@@ -7,11 +7,14 @@ Microservice in the AIEIC Lab Multi-Agent System. Generates lab materials (spec,
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # fill in Azure credentials
+cp .env.example .env   # LLM_BACKEND=mock by default; add Azure credentials to use a real model
+# .env.example selects MongoDB (STORAGE_BACKEND=mongo). For a quick local try without a database, set STORAGE_BACKEND=memory in .env.
 python -m uvicorn main:app --host 127.0.0.1 --port 8003 --reload
 ```
 
-Set `LLM_BACKEND=mock` in `.env` to run without Azure credentials.
+Set `LLM_BACKEND=mock` in `.env` to run without Azure credentials. In mock mode generation returns fixed stub content (a placeholder spec and the same three quiz questions) and cannot rewrite questions. A `request-changes` still bumps the version, and the mock puts your feedback inside each question (`(Mock revision for the feedback: ...)`) so you can see it arrived.
+
+`requirements.txt` installs `aieic-shared` straight from a public GitHub repository, so `pip` needs `git` (the Dockerfile installs it for this reason). Nothing in this service imports that package and the service runs without it; to skip it locally, remove that line.
 
 ## Endpoints
 
@@ -19,6 +22,7 @@ Set `LLM_BACKEND=mock` in `.env` to run without Azure credentials.
 |---|---|---|
 | GET  | `/health` | Health check |
 | POST | `/curriculum/generate` | Generate lab from objectives; preserves any uploaded RAG context |
+| POST | `/curriculum/generate-with-material` | Same as generate, as multipart form with optional PDF `files` (no `material_weight`) |
 | GET  | `/curriculum/{lab_id}` | Fetch current `LabMaterial` |
 | POST | `/curriculum/{lab_id}/upload-material` | Upload one or more PDFs → extract text as generation context |
 | POST | `/curriculum/{lab_id}/upload-instructions` | Store instructor instructions as generation context |
@@ -37,7 +41,7 @@ config.py                pydantic-settings (reads from .env)
 models/curriculum.py     LabMaterial, QuizQuestion, Rubric, upload/response models
 routers/curriculum.py    All endpoints
 services/
-  storage.py             MemoryStore (default) — swap to CosmosStore in v0.2
+  storage.py             MemoryStore (default) or MongoStore (STORAGE_BACKEND=mongo); see docs/data-model.md
   llm.py                 AzureLLMClient / MockLLMClient; build_llm_client() factory
   prompts.py             Prompt builders for 5 LLM tasks (return system, user tuples)
 graphs/generation.py     LangGraph pipeline: spec → quiz → rubric → self_review
@@ -60,3 +64,12 @@ docker run --env-file .env -p 8003:8003 curriculum-designer
 ```
 
 Target: Azure Container Apps.
+
+Deployment notes:
+- **Health check:** `GET /health`. The service listens on `0.0.0.0:8003`.
+- **The image builds and runs** (about 1.2 GB; verified with `LLM_BACKEND=mock STORAGE_BACKEND=memory`: generate, approve, typo check, the three PDF exports and CORS all work). It runs as root; add a non-root `USER` before exposing it to untrusted traffic.
+- **Environment:** `LLM_BACKEND`, `AZURE_OPENAI_*`, `STORAGE_BACKEND` and, for MongoDB, `MONGODB_URI` / `MONGODB_DB` (see `.env.example`). Pass them with `--env` or `--env-file`. `docker run --env-file .env` fails if that file does not exist, so use `--env LLM_BACKEND=mock` for a quick try. Keep real credentials out of the image: add `.env` to a `.dockerignore` before building, since `COPY . .` would otherwise bake a local `.env` into it.
+- **Storage:** with `STORAGE_BACKEND=memory` (the code default) a restart loses all labs and more than one replica would each hold different labs, so run a single replica. With `STORAGE_BACKEND=mongo` labs and uploaded files persist in MongoDB (set `MONGODB_URI`, keep the connection string out of the image and out of git).
+- **Generation is synchronous** and can take 30-60 seconds on a real model, so raise any proxy or ingress timeout above that.
+- **CORS** currently allows every origin (`allow_origins=["*"]` in `main.py`, marked TODO). Restrict it before exposing the service publicly.
+- There is no authentication; `instructor_id`, `approved_by` and `requested_by` are client-supplied strings.
