@@ -34,6 +34,17 @@ class LLMError(Exception):
     """Raised when the LLM call fails or returns unparseable output."""
 
 
+class LLMAuthError(LLMError):
+    """Raised when the vendor rejects the API key (HTTP 401/403)."""
+
+
+def _is_auth_failure(exc: Exception) -> bool:
+    status = getattr(exc, "status_code", None) or getattr(exc, "http_status", None)
+    if status in (401, 403):
+        return True
+    return "authentication" in type(exc).__name__.lower()
+
+
 def _strip_fences(text: str) -> str:
     """Remove markdown code fences that some LLMs add despite instructions."""
     text = text.strip()
@@ -44,16 +55,17 @@ def _strip_fences(text: str) -> str:
     return text.strip()
 
 
-class AzureLLMClient:
+class ChatLLMClient:
+    """Generation steps on top of any LangChain chat model.
 
-    def __init__(self, settings: "Settings") -> None:
-        self._llm = AzureChatOpenAI(
-            azure_endpoint=settings.azure_openai_endpoint,
-            api_key=settings.azure_openai_api_key,
-            azure_deployment=settings.azure_openai_deployment_name,
-            api_version=settings.azure_openai_api_version,
-            temperature=0.3,
-        )
+    Subclasses (or callers) supply the chat model, so the same prompts run on
+    Azure OpenAI, OpenAI, Anthropic or Gemini.
+    """
+
+    def __init__(self, chat_model, secret: str = "") -> None:
+        self._llm = chat_model
+        # A per-request teacher key. Scrubbed from error text, never logged.
+        self._secret = secret
 
     async def _invoke(self, system_prompt: str, user_content: str) -> str:
         messages = [
@@ -64,11 +76,22 @@ class AzureLLMClient:
             response = await self._llm.ainvoke(messages)
             raw = response.content
             if isinstance(raw, list):
-                raw = " ".join(str(p) for p in raw)
+                # Newer Claude models return a thinking block before the text;
+                # keep only the text so the JSON parse sees just the answer.
+                raw = "".join(
+                    p if isinstance(p, str) else p.get("text", "")
+                    for p in raw
+                    if isinstance(p, str) or (isinstance(p, dict) and p.get("type") == "text")
+                )
             logger.debug("LLM raw response (first 200 chars): %s", str(raw)[:200])
             return _strip_fences(str(raw))
         except Exception as exc:
-            raise LLMError(f"Azure OpenAI call failed: {exc}") from exc
+            detail = str(exc)
+            if self._secret:
+                detail = detail.replace(self._secret, "[redacted]")
+            if _is_auth_failure(exc):
+                raise LLMAuthError(f"The model provider rejected the API key: {detail}") from None
+            raise LLMError(f"LLM call failed: {detail}") from None
 
     async def generate_spec(
         self,
@@ -153,6 +176,20 @@ class AzureLLMClient:
             return [TypoIssue(**item) for item in data]
         except Exception as exc:
             raise LLMError(f"Check-typos JSON parse failed: {exc}\nRaw: {raw[:500]}") from exc
+
+
+class AzureLLMClient(ChatLLMClient):
+
+    def __init__(self, settings: "Settings") -> None:
+        super().__init__(
+            AzureChatOpenAI(
+                azure_endpoint=settings.azure_openai_endpoint,
+                api_key=settings.azure_openai_api_key,
+                azure_deployment=settings.azure_openai_deployment_name,
+                api_version=settings.azure_openai_api_version,
+                temperature=0.3,
+            )
+        )
 
 
 class MockLLMClient:
