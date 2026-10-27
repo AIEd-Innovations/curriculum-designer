@@ -51,7 +51,7 @@ def _chat_model(model: Model, api_key: str):
         if model.vendor == "anthropic":
             from langchain_anthropic import ChatAnthropic
 
-            return ChatAnthropic(model=model.id, api_key=api_key, temperature=0.3)
+            return ChatAnthropic(model=model.id, api_key=api_key)  # Claude 5.5 rejects a temperature
         from langchain_google_genai import ChatGoogleGenerativeAI
 
         return ChatGoogleGenerativeAI(model=model.id, google_api_key=api_key, temperature=0.3)

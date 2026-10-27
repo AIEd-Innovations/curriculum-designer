@@ -76,7 +76,13 @@ class ChatLLMClient:
             response = await self._llm.ainvoke(messages)
             raw = response.content
             if isinstance(raw, list):
-                raw = " ".join(str(p) for p in raw)
+                # Newer Claude models return a thinking block before the text;
+                # keep only the text so the JSON parse sees just the answer.
+                raw = "".join(
+                    p if isinstance(p, str) else p.get("text", "")
+                    for p in raw
+                    if isinstance(p, str) or (isinstance(p, dict) and p.get("type") == "text")
+                )
             logger.debug("LLM raw response (first 200 chars): %s", str(raw)[:200])
             return _strip_fences(str(raw))
         except Exception as exc:

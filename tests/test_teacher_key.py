@@ -189,3 +189,32 @@ def test_missing_vendor_library_is_a_clear_error(monkeypatch):
     monkeypatch.setitem(sys.modules, "langchain_anthropic", None)
     with pytest.raises(LLMError, match="anthropic client library is not installed"):
         build_client_for_key("claude-sonnet-5-5", KEY)
+
+
+# ── Claude 5.5 response shape ─────────────────────────────────────────────────
+
+class ListChat:
+    """Chat model whose reply content is a list of blocks, as Claude 5.5 returns."""
+
+    def __init__(self, content):
+        self.content = content
+
+    async def ainvoke(self, _messages):
+        return self
+
+def test_invoke_keeps_only_the_text_blocks():
+    content = [
+        {"type": "thinking", "thinking": "let me work this out", "signature": "x"},
+        {"type": "text", "text": '["ok"'},
+        {"type": "text", "text": "]"},
+    ]
+    client = ChatLLMClient(ListChat(content), secret=KEY)
+    assert asyncio.run(client._invoke("sys", "user")) == '["ok"]'
+
+
+def test_anthropic_models_are_built_without_a_temperature():
+    pytest.importorskip("langchain_anthropic")
+    from services.llm_models import build_client_for_key
+
+    chat = build_client_for_key("claude-sonnet-5-5", KEY)._llm
+    assert chat.temperature is None
