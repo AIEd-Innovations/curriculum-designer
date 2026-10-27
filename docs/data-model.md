@@ -190,7 +190,10 @@ migration instead of an index definition.
 | `GET /curriculum/{lab_id}/files` — list attachments (metadata only) | `routers/curriculum.py` |
 | `DELETE /curriculum/{lab_id}/files/{file_id}` — detach and rebuild `material_content` | `routers/curriculum.py` |
 | `(course_id, lab_id)` is now the store key; `course_id` optional on reads | `services/storage.py` |
-| 31 tests, no MongoDB server needed (mongomock + in-memory) | `tests/` |
+| `$jsonSchema` validators + index definitions, one source of truth | `services/schema.py` |
+| Apply the schema to a cluster | `scripts/init_db.py` |
+| Field-by-field tables for every collection | `docs/schema.md` |
+| 61 tests, no MongoDB server needed (mongomock, in-memory, recording doubles) | `tests/` |
 
 `material_content` became a derived value: the `extracted_text` of this lab's
 `material` files, joined in upload order, byte-identical to what the router used
@@ -213,8 +216,13 @@ MONGODB_DB=aied
 string, so tests and local dev are unaffected. Run the tests with:
 
 ```bash
+python scripts/init_db.py      # create the collections, validators and indexes
 pytest tests/ -q
 ```
+
+The field-by-field tables live in [schema.md](schema.md); `services/schema.py`
+generates the validators from the same definitions, and `tests/test_schema.py`
+fails if a Pydantic model and the validator drift apart.
 
 ---
 
