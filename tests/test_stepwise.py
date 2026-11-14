@@ -126,3 +126,68 @@ def test_whole_lab_request_changes_puts_quiz_and_rubric_back_to_pending(client):
     assert lab["spec_status"] == "approved"
     assert (lab["quiz_status"], lab["rubric_status"]) == ("pending", "pending")
     assert lab["feedback_history"][-1]["step"] == "all"
+
+
+# ── Quiz self-review ──────────────────────────────────────────────────────────
+
+class _Recorder:
+    """Wraps the mock model to count calls and make the review find (or not find) problems."""
+
+    def __init__(self, inner, notes):
+        self.inner, self.notes = inner, notes
+        self.quiz_feedback, self.review_rubrics = [], []
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+    async def generate_quiz(self, *args, **kwargs):
+        self.quiz_feedback.append(kwargs.get("feedback"))
+        return await self.inner.generate_quiz(*args, **kwargs)
+
+    async def self_review(self, spec_markdown, quiz, rubric, objectives):
+        self.review_rubrics.append(rubric)
+        return self.notes
+
+
+def _quiz_with_review(client, monkeypatch, notes, **body):
+    import routers.curriculum as router_module
+
+    recorder = _Recorder(router_module._llm_for(type("R", (), {"headers": {}, "app": client.app})()), notes)
+    monkeypatch.setattr(router_module, "_llm_for", lambda request: recorder)
+    start(client)
+    step(client, "spec", "approve")
+    lab = step(client, "quiz", "generate", **body).json()
+    return recorder, lab
+
+
+def test_self_review_is_off_unless_asked_for(client, monkeypatch):
+    recorder, _ = _quiz_with_review(client, monkeypatch, ["Q1 is vague"])
+    assert recorder.review_rubrics == []
+    assert recorder.quiz_feedback == [None]
+
+
+def test_self_review_with_no_problems_keeps_the_first_quiz(client, monkeypatch):
+    recorder, lab = _quiz_with_review(client, monkeypatch, [], self_review=True)
+    assert len(recorder.review_rubrics) == 1
+    assert recorder.quiz_feedback == [None]
+    assert len(lab["quiz"]) == 3
+
+
+def test_self_review_problems_are_fed_back_once(client, monkeypatch):
+    recorder, lab = _quiz_with_review(client, monkeypatch, ["Q1 is vague"], self_review=True, feedback="harder")
+    assert len(recorder.review_rubrics) == 1  # one review, never a loop
+    assert recorder.quiz_feedback[0] == "harder"
+    assert "Q1 is vague" in recorder.quiz_feedback[1] and "harder" in recorder.quiz_feedback[1]
+    # the review never sees a rubric: it has not been written yet
+    assert recorder.review_rubrics[0].criteria == []
+    # only the instructor's own feedback is logged as feedback
+    assert [e["feedback"] for e in lab["feedback_history"]] == ["harder"]
+
+
+def test_review_prompt_skips_the_rubric_check_when_there_is_no_rubric():
+    from services.prompts import build_self_review_prompt
+
+    _, without = build_self_review_prompt("spec", "[]", None, ["o"])
+    _, with_rubric = build_self_review_prompt("spec", "[]", "{}", ["o"])
+    assert "not written yet" in without
+    assert "not written yet" not in with_rubric

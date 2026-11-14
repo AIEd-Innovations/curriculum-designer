@@ -154,7 +154,8 @@ class ChatLLMClient:
         objectives: list[str],
     ) -> list[str]:
         quiz_json = json.dumps([q.model_dump() for q in quiz], indent=2)
-        rubric_json = json.dumps(rubric.model_dump(), indent=2)
+        # No criteria yet means the rubric has not been written: review the spec and quiz alone.
+        rubric_json = json.dumps(rubric.model_dump(), indent=2) if rubric.criteria else None
         system, user = build_self_review_prompt(spec_markdown, quiz_json, rubric_json, objectives)
         raw = await self._invoke(system, user)
         try:
