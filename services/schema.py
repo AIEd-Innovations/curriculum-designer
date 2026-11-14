@@ -24,6 +24,7 @@ DIFFICULTY_TIERS = ["basic", "intermediate", "challenge"]
 APPROVAL_STATUSES = ["pending", "approved", "needs_changes"]
 MATERIAL_WEIGHTS = ["strict", "balanced", "expansive"]
 FILE_KINDS = ["material", "instructions"]
+FEEDBACK_STEPS = ["spec", "quiz", "rubric", "all"]
 
 
 def _nullable(bson_type: str) -> list[str]:
@@ -86,6 +87,10 @@ FEEDBACK_ENTRY_SCHEMA: dict[str, Any] = {
             "minimum": 1,
             "description": "The version produced AFTER this feedback was applied",
         },
+        "step": {
+            "enum": FEEDBACK_STEPS,
+            "description": "The step the feedback was about; 'all' for a whole-lab request",
+        },
     },
 }
 
@@ -130,6 +135,9 @@ LAB_SCHEMA: dict[str, Any] = {
         "approval_status": {"enum": APPROVAL_STATUSES},
         "approved_by": {"bsonType": _nullable("string")},
         "approval_notes": {"bsonType": _nullable("string")},
+        "spec_status": {"enum": APPROVAL_STATUSES},
+        "quiz_status": {"enum": APPROVAL_STATUSES},
+        "rubric_status": {"enum": APPROVAL_STATUSES},
         "feedback_history": {"bsonType": "array", "items": FEEDBACK_ENTRY_SCHEMA},
         "version": {"bsonType": "int", "minimum": 1},
         "generated_at": {"bsonType": "date"},

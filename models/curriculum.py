@@ -50,6 +50,11 @@ class Rubric(BaseModel):
 
 ApprovalStatus = Literal["pending", "approved", "needs_changes"]
 
+# The three steps of generation, in order. Each is approved by the instructor
+# before the next one is generated.
+Step = Literal["spec", "quiz", "rubric"]
+STEPS: tuple[str, ...] = ("spec", "quiz", "rubric")
+
 
 class FeedbackEntry(BaseModel):
     """One round of instructor `request-changes` feedback."""
@@ -57,6 +62,8 @@ class FeedbackEntry(BaseModel):
     requested_by: str
     requested_at: datetime
     resulting_version: int   # version produced AFTER applying this feedback
+    # Which step the feedback was about; "all" for the whole-lab request-changes.
+    step: Literal["spec", "quiz", "rubric", "all"] = "all"
 
 
 # ── Lab material (canonical curriculum object) ────────────────────────────────
@@ -82,6 +89,10 @@ class LabMaterial(BaseModel):
     approval_status: ApprovalStatus = "pending"
     approved_by: str | None = None
     approval_notes: str | None = None
+    # Step-by-step approval. `approval_status` is "approved" only when all three are.
+    spec_status: ApprovalStatus = "pending"
+    quiz_status: ApprovalStatus = "pending"
+    rubric_status: ApprovalStatus = "pending"
     feedback_history: list[FeedbackEntry] = Field(default_factory=list)
 
     # Versioning — bumped on every regeneration triggered by request-changes
@@ -106,6 +117,12 @@ class GenerateRequest(BaseModel):
 class ApproveRequest(BaseModel):
     approved_by: str
     notes: str = ""
+
+
+class StepRequest(BaseModel):
+    """Generate (or regenerate) one step. `feedback` is the instructor's change request, if any."""
+    requested_by: str
+    feedback: str | None = None
 
 
 class RequestChangesRequest(BaseModel):

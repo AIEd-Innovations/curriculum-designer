@@ -30,6 +30,9 @@ from models.curriculum import (
     GenerateRequest,
     LabMaterial,
     RequestChangesRequest,
+    STEPS,
+    Rubric,
+    StepRequest,
     UploadAckResponse,
     UploadInstructionsRequest,
 )
@@ -770,6 +773,7 @@ async def approve(lab_id: str, body: ApproveRequest, request: Request) -> LabMat
         raise _not_found(lab_id)
 
     material.approval_status = "approved"
+    material.spec_status = material.quiz_status = material.rubric_status = "approved"
     material.approved_by = body.approved_by
     material.approval_notes = body.notes
     material.last_updated = datetime.now(timezone.utc)
@@ -818,6 +822,7 @@ async def request_changes(
     material.rubric = final_state["rubric"]
     material.version = new_version
     material.approval_status = "needs_changes"
+    material.quiz_status = material.rubric_status = "pending"
     material.approved_by = None
     material.approval_notes = None
     material.last_updated = now
@@ -829,6 +834,191 @@ async def request_changes(
             resulting_version=new_version,
         )
     )
+    store.put(material)
+    return material
+
+
+# ── Step-by-step generation ───────────────────────────────────────────────────
+#
+# The instructor approves each step before the next is generated:
+#   POST /generate-spec                    -> spec only
+#   POST /{lab_id}/steps/spec/generate     -> regenerate the spec (with feedback)
+#   POST /{lab_id}/steps/spec/approve      -> unlocks the quiz
+#   POST /{lab_id}/steps/quiz/generate     -> (re)generate the quiz
+#   POST /{lab_id}/steps/quiz/approve      -> unlocks the rubric
+#   POST /{lab_id}/steps/rubric/generate   -> (re)generate the rubric
+#   POST /{lab_id}/steps/rubric/approve    -> the lab is approved
+# Changing a step puts every later step back to "pending".
+
+def _conflict(code: str, message: str) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={"error": {"code": code, "message": message, "agent": "curriculum-designer"}},
+    )
+
+
+def _check_step(step: str) -> None:
+    if step not in STEPS:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": {"code": "UNKNOWN_STEP",
+                              "message": f"Unknown step '{step}'. Use one of: {', '.join(STEPS)}.",
+                              "agent": "curriculum-designer"}},
+        )
+
+
+def _status_of(material: LabMaterial, step: str) -> str:
+    return getattr(material, f"{step}_status")
+
+
+def _reset_after(material: LabMaterial, step: str) -> None:
+    """A changed step makes every later step stale: it has to be looked at again."""
+    for later in STEPS[STEPS.index(step) + 1:]:
+        setattr(material, f"{later}_status", "pending")
+
+
+def _refresh_overall(material: LabMaterial, approved_by: str | None = None, notes: str | None = None) -> None:
+    if all(_status_of(material, s) == "approved" for s in STEPS):
+        material.approval_status = "approved"
+        material.approved_by = approved_by
+        material.approval_notes = notes
+    else:
+        material.approval_status = "pending"
+        material.approved_by = None
+        material.approval_notes = None
+
+
+@router.post("/generate-spec", response_model=LabMaterial)
+async def generate_spec_only(req: GenerateRequest, request: Request) -> LabMaterial:
+    """Start a lab step by step: generate only the spec and wait for the instructor.
+
+    Uploaded material and instructions on an existing lab_id are used as context, as in /generate.
+    """
+    store = request.app.state.store
+    existing = store.get(req.lab_id)
+    material_content = existing.material_content if existing else None
+    agent_instructions = existing.agent_instructions if existing else None
+
+    spec = await _llm_for(request).generate_spec(
+        title=req.title,
+        objectives=req.learning_objectives,
+        difficulty=req.difficulty,
+        duration_min=req.estimated_duration_min,
+        material_content=material_content,
+        agent_instructions=agent_instructions,
+        material_weight=req.material_weight,
+    )
+    now = datetime.now(timezone.utc)
+    material = LabMaterial(
+        lab_id=req.lab_id,
+        course_id=req.course_id,
+        title=req.title,
+        spec_markdown=spec,
+        quiz=[],
+        rubric=Rubric(criteria=[]),
+        learning_objectives=req.learning_objectives,
+        difficulty=req.difficulty,
+        estimated_duration_min=req.estimated_duration_min,
+        material_content=material_content,
+        agent_instructions=agent_instructions,
+        material_weight=req.material_weight,
+        approval_status="pending",
+        version=1,
+        generated_at=now,
+        last_updated=now,
+    )
+    store.put(material)
+    return material
+
+
+@router.post("/{lab_id}/steps/{step}/generate", response_model=LabMaterial)
+async def generate_step(
+    lab_id: str, step: str, body: StepRequest, request: Request,
+) -> LabMaterial:
+    """Generate or regenerate one step, optionally addressing instructor feedback.
+
+    The quiz needs an approved spec and the rubric needs an approved quiz.
+    """
+    _check_step(step)
+    store = request.app.state.store
+    material = store.get(lab_id)
+    if material is None:
+        raise _not_found(lab_id)
+    if step == "quiz" and material.spec_status != "approved":
+        raise _conflict("STEP_NOT_READY", "Approve the spec before generating the quiz.")
+    if step == "rubric" and material.quiz_status != "approved":
+        raise _conflict("STEP_NOT_READY", "Approve the quiz before generating the rubric.")
+
+    feedback = (body.feedback or "").strip() or None
+    llm = _llm_for(request)
+    if step == "spec":
+        material.spec_markdown = await llm.generate_spec(
+            title=material.title,
+            objectives=material.learning_objectives,
+            difficulty=material.difficulty,
+            duration_min=material.estimated_duration_min,
+            material_content=material.material_content,
+            agent_instructions=material.agent_instructions,
+            material_weight=material.material_weight,
+            feedback=feedback,
+            previous_spec=material.spec_markdown,
+        )
+    elif step == "quiz":
+        material.quiz = await llm.generate_quiz(
+            spec_markdown=material.spec_markdown,
+            objectives=material.learning_objectives,
+            material_content=material.material_content,
+            agent_instructions=material.agent_instructions,
+            feedback=feedback,
+        )
+    else:
+        material.rubric = await llm.generate_rubric(
+            spec_markdown=material.spec_markdown,
+            quiz=material.quiz,
+            feedback=feedback,
+        )
+
+    now = datetime.now(timezone.utc)
+    setattr(material, f"{step}_status", "needs_changes" if feedback else "pending")
+    _reset_after(material, step)
+    _refresh_overall(material)
+    if feedback:
+        material.version += 1
+        material.feedback_history.append(
+            FeedbackEntry(
+                feedback=feedback,
+                requested_by=body.requested_by,
+                requested_at=now,
+                resulting_version=material.version,
+                step=step,
+            )
+        )
+    material.last_updated = now
+    store.put(material)
+    return material
+
+
+@router.post("/{lab_id}/steps/{step}/approve", response_model=LabMaterial)
+async def approve_step(
+    lab_id: str, step: str, body: ApproveRequest, request: Request,
+) -> LabMaterial:
+    """Approve one step. When all three are approved the lab itself is approved."""
+    _check_step(step)
+    store = request.app.state.store
+    material = store.get(lab_id)
+    if material is None:
+        raise _not_found(lab_id)
+    for earlier in STEPS[:STEPS.index(step)]:
+        if _status_of(material, earlier) != "approved":
+            raise _conflict("STEP_NOT_READY", f"Approve the {earlier} first.")
+    if step == "quiz" and not material.quiz:
+        raise _conflict("STEP_NOT_GENERATED", "There is no quiz to approve yet.")
+    if step == "rubric" and not material.rubric.criteria:
+        raise _conflict("STEP_NOT_GENERATED", "There is no rubric to approve yet.")
+
+    setattr(material, f"{step}_status", "approved")
+    _refresh_overall(material, approved_by=body.approved_by, notes=body.notes)
+    material.last_updated = datetime.now(timezone.utc)
     store.put(material)
     return material
 

@@ -38,8 +38,15 @@ def build_spec_prompt(
     material_content: str | None,
     agent_instructions: str | None,
     material_weight: str = "balanced",
+    feedback: str | None = None,
+    previous_spec: str | None = None,
 ) -> tuple[str, str]:
     """Returns (system_prompt, user_content)."""
+    revision_block = ""
+    if feedback:
+        revision_block = f"\nInstructor feedback to address in this revision:\n{feedback}\n"
+        if previous_spec:
+            revision_block += f"\nThe current spec, to revise:\n{previous_spec}\n"
     system = (
         "You are an expert CS curriculum designer. "
         "Write clear, complete, and well-structured lab specifications in Markdown. "
@@ -57,7 +64,7 @@ Learning objectives:
 {_block("Uploaded lab material (use as primary reference)", material_content)}
 
 {_block("Instructor instructions", agent_instructions)}
-
+{revision_block}
 The spec must include these sections: Overview, Learning Objectives, Prerequisites, Setup, Tasks, Submission Requirements.
 Return ONLY the Markdown text. Do not wrap it in a code block or add any prose before/after."""
     return system, user

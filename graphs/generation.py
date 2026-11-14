@@ -55,6 +55,7 @@ async def spec_generator_node(state: GenerationState) -> dict:
         duration_min=req.estimated_duration_min,
         material_content=state.get("material_content"),
         agent_instructions=state.get("agent_instructions"),
+        material_weight=state.get("material_weight", "balanced"),
     )
     return {"spec_markdown": spec}
 

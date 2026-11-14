@@ -38,6 +38,9 @@ One document per lab. Mirrors `LabMaterial` in `models/curriculum.py`.
 | `approval_status` | string | yes | `"pending"` | `pending` \| `approved` \| `needs_changes` | |
 | `approved_by` | string \| null | no | `null` | — | Instructor id |
 | `approval_notes` | string \| null | no | `null` | — | |
+| `spec_status` | string | no | `"pending"` | `pending` \| `approved` \| `needs_changes` | Step-by-step approval. `approval_status` is `approved` only when all three steps are |
+| `quiz_status` | string | no | `"pending"` | same | Locked until `spec_status` is `approved` |
+| `rubric_status` | string | no | `"pending"` | same | Locked until `quiz_status` is `approved` |
 | `feedback_history` | array\<object\> | yes | `[]` | items: [feedback entry](#embedded-feedback-entry) | Append-only |
 | `version` | int | yes | `1` | ≥ 1 | `+1` on every `request-changes` |
 | `generated_at` | date | yes | — | — | UTC |
@@ -132,6 +135,7 @@ Inside `labs.feedback_history[]`. Mirrors `FeedbackEntry`.
 | `requested_by` | string | yes | Instructor id |
 | `requested_at` | date | yes | UTC |
 | `resulting_version` | int | yes | The version produced **after** applying this feedback |
+| `step` | string | no | `spec` \| `quiz` \| `rubric` \| `all` (default `all`): what the feedback was about |
 
 ---
 
@@ -146,6 +150,9 @@ Inside `labs.feedback_history[]`. Mirrors `FeedbackEntry`.
 | `POST /curriculum/{lab_id}/upload-instructions` | update `agent_instructions`, `last_updated` | — |
 | `GET /curriculum/{lab_id}/files` | read (for `course_id`) | read |
 | `DELETE /curriculum/{lab_id}/files/{file_id}` | rebuild `material_content` | delete one |
+| `POST /curriculum/generate-spec` | insert a lab with only the spec | — |
+| `POST /curriculum/{lab_id}/steps/{step}/generate` | replace that step; set its status; reset later steps to `pending`; append `feedback_history` if feedback was given | — |
+| `POST /curriculum/{lab_id}/steps/{step}/approve` | set that step to `approved`; `approval_status` follows | — |
 | `POST /curriculum/{lab_id}/approve` | update `approval_status`, `approved_by`, `approval_notes` | — |
 | `POST /curriculum/{lab_id}/request-changes` | replace `quiz` + `rubric`, `version+1`, append `feedback_history`, status → `needs_changes` | — |
 | `POST /curriculum/{lab_id}/check-typos` | read | — |
