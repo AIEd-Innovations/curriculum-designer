@@ -102,10 +102,12 @@ class ChatLLMClient:
         material_content: str | None,
         agent_instructions: str | None,
         material_weight: str = "balanced",
+        feedback: str | None = None,
+        previous_spec: str | None = None,
     ) -> str:
         system, user = build_spec_prompt(
             title, objectives, difficulty, duration_min, material_content, agent_instructions,
-            material_weight=material_weight,
+            material_weight=material_weight, feedback=feedback, previous_spec=previous_spec,
         )
         return await self._invoke(system, user)
 
@@ -136,7 +138,7 @@ class ChatLLMClient:
         feedback: str | None = None,
     ) -> Rubric:
         quiz_json = json.dumps([q.model_dump() for q in quiz], indent=2)
-        system, user = build_rubric_prompt(spec_markdown, quiz_json)
+        system, user = build_rubric_prompt(spec_markdown, quiz_json, feedback=feedback)
         raw = await self._invoke(system, user)
         try:
             data = json.loads(raw)
@@ -201,10 +203,13 @@ class MockLLMClient:
 
     async def generate_spec(self, title: str, objectives: list[str], difficulty: str,
                             duration_min: int, material_content: str | None,
-                            agent_instructions: str | None) -> str:
+                            agent_instructions: str | None, material_weight: str = "balanced",
+                            feedback: str | None = None, previous_spec: str | None = None) -> str:
         obj_lines = "\n".join(f"- {o}" for o in objectives)
+        note = f'_[Mock revision for the feedback: "{feedback.strip()}"]_\n\n' if feedback and feedback.strip() else ""
         return (
             f"# Lab: {title}\n\n"
+            f"{note}"
             f"_[Mock] {difficulty} lab, ~{duration_min} min._\n\n"
             f"## Learning Objectives\n{obj_lines}\n\n"
             f"## Setup\n[mock placeholder]\n\n"
