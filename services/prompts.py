@@ -166,9 +166,16 @@ Return ONLY the JSON object. No prose, no code fence."""
 def build_self_review_prompt(
     spec_markdown: str,
     quiz_json: str,
-    rubric_json: str,
+    rubric_json: str | None,
     objectives: list[str],
 ) -> tuple[str, str]:
+    """`rubric_json=None` reviews the spec and quiz alone, for the step-by-step flow where
+    the rubric has not been written yet."""
+    rubric_block = (
+        f"Rubric:\n{rubric_json}"
+        if rubric_json is not None
+        else "Rubric: not written yet. Skip check 3."
+    )
     objectives_list = "\n".join(f"- {obj}" for obj in objectives)
     system = (
         "You are a quality reviewer for CS lab materials. "
@@ -185,8 +192,7 @@ Lab specification:
 Quiz:
 {quiz_json}
 
-Rubric:
-{rubric_json}
+{rubric_block}
 
 Check for:
 1. Quiz questions that do not map to any learning objective

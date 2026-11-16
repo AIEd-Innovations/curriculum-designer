@@ -18,7 +18,7 @@ Set `LLM_BACKEND=mock` in `.env` to run without Azure credentials. In mock mode 
 
 ## Endpoints
 
-Step by step (the instructor approves each step before the next is generated): `POST /curriculum/generate-spec`, then `POST /curriculum/{lab_id}/steps/{spec|quiz|rubric}/generate` (optional `feedback`) and `.../approve`. The quiz needs an approved spec and the rubric an approved quiz. `POST /curriculum/generate` still runs the whole pipeline at once.
+Step by step (the instructor approves each step before the next is generated): `POST /curriculum/generate-spec`, then `POST /curriculum/{lab_id}/steps/{spec|quiz|rubric}/generate` (optional `feedback`) and `.../approve`. Add `"self_review": true` to the quiz `generate` call to have the agent review the quiz and rewrite it once if it finds problems (off by default: two extra model calls). The quiz needs an approved spec and the rubric an approved quiz. `POST /curriculum/generate` still runs the whole pipeline at once.
 
 | Method | Path | Description |
 |---|---|---|

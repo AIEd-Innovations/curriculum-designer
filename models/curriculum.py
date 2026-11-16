@@ -123,6 +123,9 @@ class StepRequest(BaseModel):
     """Generate (or regenerate) one step. `feedback` is the instructor's change request, if any."""
     requested_by: str
     feedback: str | None = None
+    # Quiz step only. Off by default: it costs two more model calls (a review, then a retry if
+    # the review finds something), and one self-check is what the pipeline has always done.
+    self_review: bool = False
 
 
 class RequestChangesRequest(BaseModel):

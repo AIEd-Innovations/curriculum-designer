@@ -964,13 +964,27 @@ async def generate_step(
             previous_spec=material.spec_markdown,
         )
     elif step == "quiz":
-        material.quiz = await llm.generate_quiz(
+        quiz_args = dict(
             spec_markdown=material.spec_markdown,
             objectives=material.learning_objectives,
             material_content=material.material_content,
             agent_instructions=material.agent_instructions,
-            feedback=feedback,
         )
+        material.quiz = await llm.generate_quiz(**quiz_args, feedback=feedback)
+        if body.self_review:
+            # The reflection pattern, once: review the quiz against the approved spec and, if
+            # the review found problems, write it again with those problems as feedback.
+            notes = await llm.self_review(
+                spec_markdown=material.spec_markdown,
+                quiz=material.quiz,
+                rubric=Rubric(criteria=[]),
+                objectives=material.learning_objectives,
+            )
+            if notes:
+                review = "Fix these problems found by a self-review:\n" + "\n".join(notes)
+                material.quiz = await llm.generate_quiz(
+                    **quiz_args, feedback=f"{feedback}\n{review}" if feedback else review,
+                )
     else:
         material.rubric = await llm.generate_rubric(
             spec_markdown=material.spec_markdown,
