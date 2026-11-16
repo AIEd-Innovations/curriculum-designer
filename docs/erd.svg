@@ -1,0 +1,144 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 906" width="1320" height="906" font-family="DejaVu Sans Mono, Menlo, Consolas, monospace">
+<style>.box{fill:#fff;stroke:#000;stroke-width:2.5}.tname{font-size:19px;font-weight:700;text-anchor:middle}.col{font-size:15px}.pk{font-size:15px;font-style:italic}.type{font-size:11px;text-anchor:end;letter-spacing:.5px}.rel{fill:none;stroke:#000;stroke-width:2}.dash{stroke-dasharray:7 5}.sep{stroke:#000;stroke-width:2}</style>
+<rect width="1320" height="906" fill="#fff"/>
+<path class="rel" d="M330,78 H410 V104 H470"/>
+<path class="rel" d="M470,78 H420 V314 H370"/>
+<path class="rel" d="M470,78 H400 V534 H380"/>
+<path class="rel" d="M830,78 H880 V104 H930"/>
+<path class="rel" d="M830,78 H865 V424 H930"/>
+<path class="rel" d="M830,78 H850 V654 H930"/>
+<path class="rel dash" d="M930,286 H893 V870 H410 V288 H370"/>
+<rect class="box" x="40" y="40" width="290" height="138" rx="14"/>
+<text class="tname" x="185" y="69">courses</text>
+<line class="sep" x1="40" y1="80" x2="330" y2="80"/>
+<text class="pk" x="54" y="96">course_id</text>
+<text class="type" x="316" y="96">TEXT</text>
+<text class="col" x="54" y="122">title</text>
+<text class="type" x="316" y="122">TEXT</text>
+<text class="col" x="54" y="148">term</text>
+<text class="type" x="316" y="148">TEXT</text>
+<rect class="box" x="40" y="250" width="330" height="164" rx="14"/>
+<text class="tname" x="205" y="279">lab_learning_objectives</text>
+<line class="sep" x1="40" y1="290" x2="370" y2="290"/>
+<text class="pk" x="54" y="306">objective_id</text>
+<text class="type" x="356" y="306">UUID</text>
+<text class="col" x="54" y="332">lab_id</text>
+<text class="type" x="356" y="332">UUID</text>
+<text class="col" x="54" y="358">position</text>
+<text class="type" x="356" y="358">INT</text>
+<text class="col" x="54" y="384">objective</text>
+<text class="type" x="356" y="384">TEXT</text>
+<rect class="box" x="40" y="470" width="340" height="346" rx="14"/>
+<text class="tname" x="210" y="499">lab_files</text>
+<line class="sep" x1="40" y1="510" x2="380" y2="510"/>
+<text class="pk" x="54" y="526">file_id</text>
+<text class="type" x="366" y="526">UUID</text>
+<text class="col" x="54" y="552">lab_id</text>
+<text class="type" x="366" y="552">UUID</text>
+<text class="col" x="54" y="578">filename</text>
+<text class="type" x="366" y="578">TEXT</text>
+<text class="col" x="54" y="604">content_type</text>
+<text class="type" x="366" y="604">TEXT</text>
+<text class="col" x="54" y="630">size_bytes</text>
+<text class="type" x="366" y="630">INT</text>
+<text class="col" x="54" y="656">kind</text>
+<text class="type" x="366" y="656">ENUM</text>
+<text class="col" x="54" y="682">uploaded_by</text>
+<text class="type" x="366" y="682">TEXT</text>
+<text class="col" x="54" y="708">uploaded_at</text>
+<text class="type" x="366" y="708">TIMESTAMPTZ</text>
+<text class="col" x="54" y="734">storage_key</text>
+<text class="type" x="366" y="734">TEXT</text>
+<text class="col" x="54" y="760">extracted_text</text>
+<text class="type" x="366" y="760">TEXT</text>
+<text class="col" x="54" y="786">char_count</text>
+<text class="type" x="366" y="786">INT</text>
+<rect class="box" x="470" y="40" width="360" height="528" rx="14"/>
+<text class="tname" x="650" y="69">labs</text>
+<line class="sep" x1="470" y1="80" x2="830" y2="80"/>
+<text class="pk" x="484" y="96">lab_id</text>
+<text class="type" x="816" y="96">UUID</text>
+<text class="col" x="484" y="122">course_id</text>
+<text class="type" x="816" y="122">TEXT</text>
+<text class="col" x="484" y="148">lab_key</text>
+<text class="type" x="816" y="148">TEXT</text>
+<text class="col" x="484" y="174">title</text>
+<text class="type" x="816" y="174">TEXT</text>
+<text class="col" x="484" y="200">spec_markdown</text>
+<text class="type" x="816" y="200">TEXT</text>
+<text class="col" x="484" y="226">difficulty</text>
+<text class="type" x="816" y="226">ENUM</text>
+<text class="col" x="484" y="252">estimated_duration_min</text>
+<text class="type" x="816" y="252">INT</text>
+<text class="col" x="484" y="278">material_weight</text>
+<text class="type" x="816" y="278">ENUM</text>
+<text class="col" x="484" y="304">agent_instructions</text>
+<text class="type" x="816" y="304">TEXT</text>
+<text class="col" x="484" y="330">approval_status</text>
+<text class="type" x="816" y="330">ENUM</text>
+<text class="col" x="484" y="356">approved_by</text>
+<text class="type" x="816" y="356">TEXT</text>
+<text class="col" x="484" y="382">approval_notes</text>
+<text class="type" x="816" y="382">TEXT</text>
+<text class="col" x="484" y="408">code_weight</text>
+<text class="type" x="816" y="408">NUMERIC</text>
+<text class="col" x="484" y="434">report_weight</text>
+<text class="type" x="816" y="434">NUMERIC</text>
+<text class="col" x="484" y="460">manual_weight</text>
+<text class="type" x="816" y="460">NUMERIC</text>
+<text class="col" x="484" y="486">version</text>
+<text class="type" x="816" y="486">INT</text>
+<text class="col" x="484" y="512">generated_at</text>
+<text class="type" x="816" y="512">TIMESTAMPTZ</text>
+<text class="col" x="484" y="538">last_updated</text>
+<text class="type" x="816" y="538">TIMESTAMPTZ</text>
+<rect class="box" x="930" y="40" width="350" height="294" rx="14"/>
+<text class="tname" x="1105" y="69">lab_quiz_questions</text>
+<line class="sep" x1="930" y1="80" x2="1280" y2="80"/>
+<text class="pk" x="944" y="96">question_id</text>
+<text class="type" x="1266" y="96">UUID</text>
+<text class="col" x="944" y="122">lab_id</text>
+<text class="type" x="1266" y="122">UUID</text>
+<text class="col" x="944" y="148">label</text>
+<text class="type" x="1266" y="148">TEXT</text>
+<text class="col" x="944" y="174">question</text>
+<text class="type" x="1266" y="174">TEXT</text>
+<text class="col" x="944" y="200">type</text>
+<text class="type" x="1266" y="200">ENUM</text>
+<text class="col" x="944" y="226">expected_answer</text>
+<text class="type" x="1266" y="226">TEXT</text>
+<text class="col" x="944" y="252">rubric_points</text>
+<text class="type" x="1266" y="252">INT</text>
+<text class="col" x="944" y="278">difficulty</text>
+<text class="type" x="1266" y="278">ENUM</text>
+<text class="col" x="944" y="304">objective_id</text>
+<text class="type" x="1266" y="304">UUID</text>
+<rect class="box" x="930" y="360" width="350" height="190" rx="14"/>
+<text class="tname" x="1105" y="389">lab_rubric_criteria</text>
+<line class="sep" x1="930" y1="400" x2="1280" y2="400"/>
+<text class="pk" x="944" y="416">criterion_id</text>
+<text class="type" x="1266" y="416">UUID</text>
+<text class="col" x="944" y="442">lab_id</text>
+<text class="type" x="1266" y="442">UUID</text>
+<text class="col" x="944" y="468">name</text>
+<text class="type" x="1266" y="468">TEXT</text>
+<text class="col" x="944" y="494">weight</text>
+<text class="type" x="1266" y="494">NUMERIC</text>
+<text class="col" x="944" y="520">description</text>
+<text class="type" x="1266" y="520">TEXT</text>
+<rect class="box" x="930" y="590" width="350" height="216" rx="14"/>
+<text class="tname" x="1105" y="619">lab_feedback_history</text>
+<line class="sep" x1="930" y1="630" x2="1280" y2="630"/>
+<text class="pk" x="944" y="646">feedback_id</text>
+<text class="type" x="1266" y="646">UUID</text>
+<text class="col" x="944" y="672">lab_id</text>
+<text class="type" x="1266" y="672">UUID</text>
+<text class="col" x="944" y="698">feedback</text>
+<text class="type" x="1266" y="698">TEXT</text>
+<text class="col" x="944" y="724">requested_by</text>
+<text class="type" x="1266" y="724">TEXT</text>
+<text class="col" x="944" y="750">requested_at</text>
+<text class="type" x="1266" y="750">TIMESTAMPTZ</text>
+<text class="col" x="944" y="776">resulting_version</text>
+<text class="type" x="1266" y="776">INT</text>
+</svg>
