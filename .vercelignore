@@ -1,0 +1,6 @@
+frontend
+tests
+docs
+scripts
+.venv
+.pytest_cache

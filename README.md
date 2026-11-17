@@ -14,7 +14,18 @@ python -m uvicorn main:app --host 127.0.0.1 --port 8003 --reload
 
 Set `LLM_BACKEND=mock` in `.env` to run without Azure credentials. In mock mode generation returns fixed stub content (a placeholder spec and the same three quiz questions) and cannot rewrite questions. A `request-changes` still bumps the version, and the mock puts your feedback inside each question (`(Mock revision for the feedback: ...)`) so you can see it arrived.
 
-`requirements.txt` installs `aieic-shared` straight from a public GitHub repository, so `pip` needs `git` (the Dockerfile installs it for this reason). Nothing in this service imports that package and the service runs without it; to skip it locally, remove that line.
+`requirements.txt` holds only what the service needs at runtime (the unused `aieic-shared` git dependency is commented out). Tests and the Streamlit demo need `pip install -r requirements-dev.txt`.
+
+## Deploying to Vercel (free Hobby plan)
+
+`main.py` exposes `app`, which Vercel detects as a FastAPI project; `vercel.json` raises the function timeout to 300 s (generation takes 30-60 s). Deployed and checked on 2026-10-25 with Mongo storage and the mock model.
+
+1. Import the repo in Vercel (framework preset: FastAPI).
+2. Set `STORAGE_BACKEND=mongo` — **required**: a serverless function cannot keep the in-memory store between requests — plus `MONGODB_URI` (type **Secret**) and `MONGODB_DB`. Allow Vercel's IPs in MongoDB Atlas (Network Access: 0.0.0.0/0 for the demo).
+3. Set the model: `LLM_BACKEND=azure` with the `AZURE_OPENAI_*` variables, or `LLM_BACKEND=mock` for a demo.
+4. Deploy, check `https://<project>.vercel.app/health`, then set `VITE_CURRICULUM_URL` (type Config) to that URL in the **ui-instructor** Vercel project (Production) and redeploy it without the build cache.
+
+If every request returns `FUNCTION_INVOCATION_FAILED`, open the project's Logs. `InvalidURI: Bad database name` means `MONGODB_URI` has a stray space or line break; paste it again as one line.
 
 ## Endpoints
 
