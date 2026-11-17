@@ -35,10 +35,13 @@ def test_app_starts_and_is_healthy(app):
 
 def test_lifespan_builds_both_stores(app):
     from services.storage import CurriculumStore, LabFileStore
+    from services.system import MemorySystemStore
 
     with TestClient(app):
         assert isinstance(app.state.store, CurriculumStore)
         assert isinstance(app.state.file_store, LabFileStore)
+        # Users and courses, for /me and the ownership check.
+        assert isinstance(app.state.system_store, MemorySystemStore)
 
 
 def test_generation_graph_compiled(app):
@@ -62,6 +65,9 @@ def test_existing_routes_still_registered(app):
     """The migration must not have dropped anything."""
     paths = registered_paths(app)
     for path in (
+        "/me",
+        "/courses",
+        "/courses/{course_id}/labs",
         "/curriculum/generate",
         "/curriculum/generate-with-material",
         "/curriculum/{lab_id}",

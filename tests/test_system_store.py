@@ -76,6 +76,19 @@ def test_build_system_store_picks_the_backend():
         build_system_store("sqlite")
 
 
+def test_the_mongo_backend_builds_the_shared_stores_store():
+    """`STORAGE_BACKEND=mongo` reaches `aied_db`, not the stand-in.
+
+    MongoClient connects lazily, so this checks the wiring (the import, the
+    database name, the constructor) without a server.
+    """
+    MongoSystemStore = pytest.importorskip(
+        "aied_db.stores.system", reason="aied-db is not installed"
+    ).MongoSystemStore
+    store = build_system_store("mongo", "mongodb://localhost:27017", "aied")
+    assert isinstance(store, MongoSystemStore)
+
+
 def test_labs_are_still_there_after_a_restart():
     """`STORAGE_BACKEND=mongo` keeps labs in MongoDB, not in the process."""
     client = mongomock.MongoClient()
