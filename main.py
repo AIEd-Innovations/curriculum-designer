@@ -32,8 +32,10 @@ from fastapi.responses import JSONResponse
 from config import settings
 from graphs.generation import build_generation_graph
 from routers.curriculum import router as curriculum_router
+from routers.instructor import router as instructor_router
 from services.llm import LLMAuthError, LLMError, build_llm_client
 from services.storage import build_file_store, build_store
+from services.system import build_system_store
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,7 +59,16 @@ async def lifespan(app: FastAPI):
     app.state.file_store = build_file_store(
         settings.storage_backend, settings.mongodb_uri, settings.mongodb_db
     )
+    app.state.system_store = build_system_store(
+        settings.storage_backend, settings.mongodb_uri, settings.mongodb_db
+    )
     logger.info(f"  ✓  storage: {settings.storage_backend}")
+
+    # ── Sign-in ───────────────────────────────────────────────────────────────
+    if settings.auth_ms_client_id:
+        logger.info(f"  ✓  Microsoft sign-in required (tenant {settings.auth_ms_tenant_id})")
+    else:
+        logger.warning("  !  AUTH_MS_CLIENT_ID is unset: every endpoint is open")
 
     # ── LLM client ────────────────────────────────────────────────────────────
     app.state.llm_client = build_llm_client(settings)
@@ -96,6 +107,7 @@ app.add_middleware(
 )
 
 app.include_router(curriculum_router)
+app.include_router(instructor_router)
 
 
 # ── Error envelope (contract §97–107) ─────────────────────────────────────────
@@ -117,7 +129,8 @@ async def http_exception_handler(request: Request, exc: HTTPException):
                 "agent": settings.service_name,
             }
         }
-    return JSONResponse(status_code=exc.status_code, content=body)
+    # Keep the exception's own headers: a 401 has to carry WWW-Authenticate.
+    return JSONResponse(status_code=exc.status_code, content=body, headers=exc.headers)
 
 
 @app.exception_handler(LLMAuthError)

@@ -15,6 +15,7 @@ httpx>=0.27.0
 pypdf>=4.0.0
 pymongo>=4.6.0
 markdown>=3.6
+PyJWT[crypto]>=2.8,<3   # Microsoft ID token verification (auth.py)
 xhtml2pdf>=0.2.17
 svglib<1.6
 mongomock>=4.1.2        # tests only: MongoDB fake, no server needed
@@ -24,3 +25,7 @@ eval_type_backport>=0.1.3  # Python 3.9 compat for pydantic v2 with str|None syn
 # Shared schemas, typed clients, and mock servers
 # https://github.com/yuki011121/aieic-shared
 aieic-shared @ git+https://github.com/yuki011121/aieic-shared.git
+
+# Shared MongoDB layer: the users / courses / enrollments stores
+# https://github.com/AIEd-Innovations/databases
+aied-db @ git+https://github.com/AIEd-Innovations/databases.git

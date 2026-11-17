@@ -22,7 +22,10 @@ Step by step (the instructor approves each step before the next is generated): `
 
 | Method | Path | Description |
 |---|---|---|
-| GET  | `/health` | Health check |
+| GET  | `/health` | Health check (open: no sign-in) |
+| GET  | `/me` | The signed-in instructor and the courses they own |
+| POST | `/courses` | Create a course owned by the caller, `{"name": "CSC 580"}` |
+| GET  | `/courses/{course_id}/labs` | The labs in one of the caller's courses |
 | GET  | `/curriculum/models` | Models a teacher can pick when using their own API key |
 | POST | `/curriculum/generate` | Generate lab from objectives; preserves any uploaded RAG context |
 | POST | `/curriculum/generate-with-material` | Same as generate, as multipart form with optional PDF `files` (no `material_weight`) |
@@ -35,6 +38,50 @@ Step by step (the instructor approves each step before the next is generated): `
 | GET  | `/curriculum/{lab_id}/export/lab.pdf` | Download lab spec and metadata as PDF |
 | GET  | `/curriculum/{lab_id}/export/quiz.pdf` | Download quiz as PDF |
 | GET  | `/curriculum/{lab_id}/export/rubric.pdf` | Download rubric as PDF |
+
+Every `/curriculum/{lab_id}/...` endpoint takes the lab's `course_id` as a query
+parameter (`?course_id=...`); `generate`, `generate-spec` and
+`generate-with-material` take it in the body or form instead. It defaults to
+`csc580`, which is what older clients sent.
+
+## Sign-in and course ownership
+
+The instructor dashboard signs in with Microsoft and sends the ID token on every
+request:
+
+```
+Authorization: Bearer <Microsoft ID token>
+```
+
+`auth.py` verifies it against Microsoft's published signing keys — signature,
+audience (`AUTH_MS_CLIENT_ID`), issuer and tenant (`AUTH_MS_TENANT_ID`, Cal Poly
+by default), expiry, and the `@calpoly.edu` domain. It is the same file the
+assessment agent uses, so both services accept the same tokens.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `AUTH_MS_CLIENT_ID` | empty — sign-in **off** | The dashboard's Microsoft app (client) ID (its `VITE_MS_CLIENT_ID`) |
+| `AUTH_MS_TENANT_ID` | Cal Poly's tenant | The Microsoft directory sign-ins must come from |
+| `AUTH_ALLOWED_EMAIL_DOMAIN` | `calpoly.edu` | The only email domain allowed in |
+
+With `AUTH_MS_CLIENT_ID` set, every endpoint except `/` and `/health` answers
+`401` without a valid token, and a course the caller does not own is `403`.
+Leave it empty for local development and the tests: nothing then needs a
+sign-in, and no ownership is checked.
+
+Who is who:
+
+- Anyone who signs in here is an **instructor** — the student UI has its own
+  sign-in. First sign-in creates their row in the shared `users` collection,
+  keyed by the token's `oid`; a new instructor starts with no courses.
+- Instructors create their own courses, **one owner per course**. A lab belongs
+  to a course, so only that course's owner can read or change it.
+- `uploaded_by`, `approved_by` and `requested_by` are recorded as the signed-in
+  user's email. What the browser sends in those fields is ignored while sign-in
+  is on.
+
+Known limitation, accepted for now: any `@calpoly.edu` account that signs in to
+the dashboard becomes an instructor, students included.
 
 ## Teacher API keys
 
@@ -88,4 +135,15 @@ Deployment notes:
 - **Storage:** with `STORAGE_BACKEND=memory` (the code default) a restart loses all labs and more than one replica would each hold different labs, so run a single replica. With `STORAGE_BACKEND=mongo` labs and uploaded files persist in MongoDB (set `MONGODB_URI`, keep the connection string out of the image and out of git).
 - **Generation is synchronous** and can take 30-60 seconds on a real model, so raise any proxy or ingress timeout above that.
 - **CORS** currently allows every origin (`allow_origins=["*"]` in `main.py`, marked TODO). Restrict it before exposing the service publicly.
-- There is no authentication; `instructor_id`, `approved_by` and `requested_by` are client-supplied strings.
+- **Sign-in:** set `AUTH_MS_CLIENT_ID` (and `CORS` as above) in the deployed environment, or every endpoint stays open. See **Sign-in and course ownership**.
+
+Before trusting a MongoDB deployment, run the connection check against it:
+
+```bash
+STORAGE_BACKEND=mongo python scripts/check_db.py
+```
+
+It reads `.env`, creates the indexes, writes a throwaway lab, file, user and
+course, reads them back **on a second connection** — so what survives is the
+database, not the process — and deletes them again. It never prints the
+password, and it exits non-zero on the first problem, so it can gate a deploy.

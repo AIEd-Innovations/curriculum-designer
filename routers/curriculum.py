@@ -14,7 +14,19 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 import pypdf
-from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
+
+from auth import auth_enabled, current_user, owned_course, require_instructor
 
 from models.files import (
     DeleteFileResponse,
@@ -39,7 +51,30 @@ from models.curriculum import (
 
 from services.llm_models import SUPPORTED_MODELS, build_client_for_key
 
-router = APIRouter(prefix="/curriculum", tags=["curriculum"])
+# Every route here needs a signed-in instructor (401 without one) while
+# AUTH_MS_CLIENT_ID is set; `/health` and `/` in main.py stay open. Routes that
+# need to know *which* instructor also depend on `current_user`.
+router = APIRouter(
+    prefix="/curriculum",
+    tags=["curriculum"],
+    dependencies=[Depends(require_instructor)],
+)
+
+#: Every lab belongs to a course, and a caller may only touch their own. The
+#: default keeps older clients working while sign-in is off; with sign-in on, a
+#: course the caller does not own is a 403.
+CourseId = Query("csc580", description="The course this lab belongs to")
+
+
+def _actor(user: dict, claimed: str | None = None) -> str:
+    """Who to record as having done this — `uploaded_by`, `approved_by`, `requested_by`.
+
+    The signed-in user's email when there is one: what the browser sends about
+    itself is not evidence. Falls back to the claim only with sign-in off.
+    """
+    if auth_enabled():
+        return user["email"]
+    return claimed or user.get("email", "")
 
 
 # ── Error helpers ─────────────────────────────────────────────────────────────
@@ -315,11 +350,17 @@ def _rubric_export_markdown(material: LabMaterial) -> str:
     return "\n".join(lines)
 
 
-def _get_lab_or_404(request: Request, lab_id: str) -> LabMaterial:
-    material = request.app.state.store.get(lab_id)
+def _get_lab_or_404(request: Request, lab_id: str, course_id: str | None = None) -> LabMaterial:
+    material = request.app.state.store.get(lab_id, course_id)
     if material is None:
         raise _not_found(lab_id)
     return material
+
+
+def _owned_lab(request: Request, user: dict, lab_id: str, course_id: str) -> LabMaterial:
+    """The lab, once the caller is known to own the course it is in."""
+    owned_course(request, user, course_id)
+    return _get_lab_or_404(request, lab_id, course_id)
 
 
 def _export_material_pdf(material: LabMaterial, kind: str) -> Response:
@@ -481,7 +522,9 @@ async def _run_graph(
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/generate", response_model=LabMaterial)
-async def generate(req: GenerateRequest, request: Request) -> LabMaterial:
+async def generate(
+    req: GenerateRequest, request: Request, user: dict = Depends(current_user),
+) -> LabMaterial:
     """Generate a new lab from learning objectives.
 
     If a lab already exists with this lab_id, any previously uploaded
@@ -489,9 +532,10 @@ async def generate(req: GenerateRequest, request: Request) -> LabMaterial:
     LLM context. The spec/quiz/rubric are fully regenerated.
     """
     store = request.app.state.store
+    owned_course(request, user, req.course_id)
 
     # Preserve RAG context from a prior upload on the same lab_id
-    existing = store.get(req.lab_id)
+    existing = store.get(req.lab_id, req.course_id)
     material_content = existing.material_content if existing else None
     agent_instructions = existing.agent_instructions if existing else None
 
@@ -539,6 +583,7 @@ async def generate_with_material(
     course_id: str = Form("csc580"),
     file: UploadFile | None = File(None),
     files: list[UploadFile] | None = File(None),
+    user: dict = Depends(current_user),
 ) -> LabMaterial:
     """One-shot endpoint: upload one or more PDFs + form fields → generate LabMaterial.
 
@@ -546,6 +591,7 @@ async def generate_with_material(
     learning_objectives must be a JSON-encoded list string.
     """
     store = request.app.state.store
+    owned_course(request, user, course_id)
 
     # Extract PDF text if one or more files were uploaded
     material_content: str | None = None
@@ -556,13 +602,13 @@ async def generate_with_material(
             uploaded_files,
             lab_id=lab_id,
             course_id=course_id,
-            uploaded_by=instructor_id,
+            uploaded_by=_actor(user, instructor_id),
             kind="material",
         )
         material_content = request.app.state.file_store.merged_text(lab_id, course_id)
 
     # Preserve existing context when no new PDF is provided
-    existing = store.get(lab_id)
+    existing = store.get(lab_id, course_id)
     if material_content is None and existing:
         material_content = existing.material_content
     agent_instructions = existing.agent_instructions if existing else None
@@ -614,27 +660,43 @@ async def generate_with_material(
 
 
 @router.get("/{lab_id}", response_model=LabMaterial)
-async def get_lab(lab_id: str, request: Request) -> LabMaterial:
-    store = request.app.state.store
-    material = store.get(lab_id)
-    if material is None:
-        raise _not_found(lab_id)
-    return material
+async def get_lab(
+    lab_id: str,
+    request: Request,
+    course_id: str = CourseId,
+    user: dict = Depends(current_user),
+) -> LabMaterial:
+    return _owned_lab(request, user, lab_id, course_id)
 
 
 @router.get("/{lab_id}/export/lab.pdf")
-async def export_lab_pdf(lab_id: str, request: Request) -> Response:
-    return _export_material_pdf(_get_lab_or_404(request, lab_id), kind="lab")
+async def export_lab_pdf(
+    lab_id: str,
+    request: Request,
+    course_id: str = CourseId,
+    user: dict = Depends(current_user),
+) -> Response:
+    return _export_material_pdf(_owned_lab(request, user, lab_id, course_id), kind="lab")
 
 
 @router.get("/{lab_id}/export/quiz.pdf")
-async def export_quiz_pdf(lab_id: str, request: Request) -> Response:
-    return _export_material_pdf(_get_lab_or_404(request, lab_id), kind="quiz")
+async def export_quiz_pdf(
+    lab_id: str,
+    request: Request,
+    course_id: str = CourseId,
+    user: dict = Depends(current_user),
+) -> Response:
+    return _export_material_pdf(_owned_lab(request, user, lab_id, course_id), kind="quiz")
 
 
 @router.get("/{lab_id}/export/rubric.pdf")
-async def export_rubric_pdf(lab_id: str, request: Request) -> Response:
-    return _export_material_pdf(_get_lab_or_404(request, lab_id), kind="rubric")
+async def export_rubric_pdf(
+    lab_id: str,
+    request: Request,
+    course_id: str = CourseId,
+    user: dict = Depends(current_user),
+) -> Response:
+    return _export_material_pdf(_owned_lab(request, user, lab_id, course_id), kind="rubric")
 
 
 @router.post("/{lab_id}/upload-material", response_model=UploadAckResponse)
@@ -643,6 +705,8 @@ async def upload_material(
     request: Request,
     file: UploadFile | None = File(None),
     files: list[UploadFile] | None = File(None),
+    course_id: str = CourseId,
+    user: dict = Depends(current_user),
 ) -> UploadAckResponse:
     """Upload PDFs to use as RAG context for generation.
 
@@ -651,9 +715,7 @@ async def upload_material(
     in all subsequent LLM prompts for this lab.
     """
     store = request.app.state.store
-    material = store.get(lab_id)
-    if material is None:
-        raise _not_found(lab_id)
+    material = _owned_lab(request, user, lab_id, course_id)
 
     uploaded_files = _collect_uploaded_files(file=file, files=files)
     if not uploaded_files:
@@ -673,6 +735,7 @@ async def upload_material(
         uploaded_files,
         lab_id=lab_id,
         course_id=material.course_id,
+        uploaded_by=_actor(user),
         kind="material",
     )
 
@@ -696,12 +759,12 @@ async def upload_instructions(
     lab_id: str,
     body: UploadInstructionsRequest,
     request: Request,
+    course_id: str = CourseId,
+    user: dict = Depends(current_user),
 ) -> UploadAckResponse:
     """Store freeform instructor instructions used as additional LLM context."""
     store = request.app.state.store
-    material = store.get(lab_id)
-    if material is None:
-        raise _not_found(lab_id)
+    material = _owned_lab(request, user, lab_id, course_id)
 
     material.agent_instructions = body.instructions
     material.last_updated = datetime.now(timezone.utc)
@@ -716,12 +779,17 @@ async def upload_instructions(
 
 
 @router.get("/{lab_id}/files", response_model=LabFileListResponse)
-async def list_files(lab_id: str, request: Request) -> LabFileListResponse:
+async def list_files(
+    lab_id: str,
+    request: Request,
+    course_id: str = CourseId,
+    user: dict = Depends(current_user),
+) -> LabFileListResponse:
     """Files attached to this lab — what the instructor UI lists.
 
     Metadata only: the extracted text can be megabytes and no caller needs it.
     """
-    material = _get_lab_or_404(request, lab_id)
+    material = _owned_lab(request, user, lab_id, course_id)
     files = request.app.state.file_store.list_for_lab(lab_id, material.course_id)
 
     return LabFileListResponse(
@@ -733,11 +801,17 @@ async def list_files(lab_id: str, request: Request) -> LabFileListResponse:
 
 
 @router.delete("/{lab_id}/files/{file_id}", response_model=DeleteFileResponse)
-async def delete_file(lab_id: str, file_id: str, request: Request) -> DeleteFileResponse:
+async def delete_file(
+    lab_id: str,
+    file_id: str,
+    request: Request,
+    course_id: str = CourseId,
+    user: dict = Depends(current_user),
+) -> DeleteFileResponse:
     """Detach a file and rebuild material_content from what is left."""
     store = request.app.state.store
     file_store = request.app.state.file_store
-    material = _get_lab_or_404(request, lab_id)
+    material = _owned_lab(request, user, lab_id, course_id)
 
     existing = file_store.get(file_id)
     if existing is None or existing.lab_id != lab_id:
@@ -766,15 +840,19 @@ async def delete_file(lab_id: str, file_id: str, request: Request) -> DeleteFile
 
 
 @router.post("/{lab_id}/approve", response_model=LabMaterial)
-async def approve(lab_id: str, body: ApproveRequest, request: Request) -> LabMaterial:
+async def approve(
+    lab_id: str,
+    body: ApproveRequest,
+    request: Request,
+    course_id: str = CourseId,
+    user: dict = Depends(current_user),
+) -> LabMaterial:
     store = request.app.state.store
-    material = store.get(lab_id)
-    if material is None:
-        raise _not_found(lab_id)
+    material = _owned_lab(request, user, lab_id, course_id)
 
     material.approval_status = "approved"
     material.spec_status = material.quiz_status = material.rubric_status = "approved"
-    material.approved_by = body.approved_by
+    material.approved_by = _actor(user, body.approved_by)
     material.approval_notes = body.notes
     material.last_updated = datetime.now(timezone.utc)
     store.put(material)
@@ -783,7 +861,11 @@ async def approve(lab_id: str, body: ApproveRequest, request: Request) -> LabMat
 
 @router.post("/{lab_id}/request-changes", response_model=LabMaterial)
 async def request_changes(
-    lab_id: str, body: RequestChangesRequest, request: Request,
+    lab_id: str,
+    body: RequestChangesRequest,
+    request: Request,
+    course_id: str = CourseId,
+    user: dict = Depends(current_user),
 ) -> LabMaterial:
     """Record instructor feedback and regenerate quiz + rubric.
 
@@ -791,9 +873,8 @@ async def request_changes(
     Only the quiz and rubric are regenerated with the feedback injected.
     """
     store = request.app.state.store
-    material = store.get(lab_id)
-    if material is None:
-        raise _not_found(lab_id)
+    material = _owned_lab(request, user, lab_id, course_id)
+    requested_by = _actor(user, body.requested_by)
 
     now = datetime.now(timezone.utc)
 
@@ -805,7 +886,7 @@ async def request_changes(
         learning_objectives=material.learning_objectives,
         difficulty=material.difficulty,
         estimated_duration_min=material.estimated_duration_min,
-        instructor_id=body.requested_by,
+        instructor_id=requested_by,
     )
 
     final_state = await _run_graph(
@@ -829,7 +910,7 @@ async def request_changes(
     material.feedback_history.append(
         FeedbackEntry(
             feedback=body.feedback,
-            requested_by=body.requested_by,
+            requested_by=requested_by,
             requested_at=now,
             resulting_version=new_version,
         )
@@ -889,13 +970,16 @@ def _refresh_overall(material: LabMaterial, approved_by: str | None = None, note
 
 
 @router.post("/generate-spec", response_model=LabMaterial)
-async def generate_spec_only(req: GenerateRequest, request: Request) -> LabMaterial:
+async def generate_spec_only(
+    req: GenerateRequest, request: Request, user: dict = Depends(current_user),
+) -> LabMaterial:
     """Start a lab step by step: generate only the spec and wait for the instructor.
 
     Uploaded material and instructions on an existing lab_id are used as context, as in /generate.
     """
     store = request.app.state.store
-    existing = store.get(req.lab_id)
+    owned_course(request, user, req.course_id)
+    existing = store.get(req.lab_id, req.course_id)
     material_content = existing.material_content if existing else None
     agent_instructions = existing.agent_instructions if existing else None
 
@@ -933,7 +1017,12 @@ async def generate_spec_only(req: GenerateRequest, request: Request) -> LabMater
 
 @router.post("/{lab_id}/steps/{step}/generate", response_model=LabMaterial)
 async def generate_step(
-    lab_id: str, step: str, body: StepRequest, request: Request,
+    lab_id: str,
+    step: str,
+    body: StepRequest,
+    request: Request,
+    course_id: str = CourseId,
+    user: dict = Depends(current_user),
 ) -> LabMaterial:
     """Generate or regenerate one step, optionally addressing instructor feedback.
 
@@ -941,9 +1030,7 @@ async def generate_step(
     """
     _check_step(step)
     store = request.app.state.store
-    material = store.get(lab_id)
-    if material is None:
-        raise _not_found(lab_id)
+    material = _owned_lab(request, user, lab_id, course_id)
     if step == "quiz" and material.spec_status != "approved":
         raise _conflict("STEP_NOT_READY", "Approve the spec before generating the quiz.")
     if step == "rubric" and material.quiz_status != "approved":
@@ -1001,7 +1088,7 @@ async def generate_step(
         material.feedback_history.append(
             FeedbackEntry(
                 feedback=feedback,
-                requested_by=body.requested_by,
+                requested_by=_actor(user, body.requested_by),
                 requested_at=now,
                 resulting_version=material.version,
                 step=step,
@@ -1014,14 +1101,17 @@ async def generate_step(
 
 @router.post("/{lab_id}/steps/{step}/approve", response_model=LabMaterial)
 async def approve_step(
-    lab_id: str, step: str, body: ApproveRequest, request: Request,
+    lab_id: str,
+    step: str,
+    body: ApproveRequest,
+    request: Request,
+    course_id: str = CourseId,
+    user: dict = Depends(current_user),
 ) -> LabMaterial:
     """Approve one step. When all three are approved the lab itself is approved."""
     _check_step(step)
     store = request.app.state.store
-    material = store.get(lab_id)
-    if material is None:
-        raise _not_found(lab_id)
+    material = _owned_lab(request, user, lab_id, course_id)
     for earlier in STEPS[:STEPS.index(step)]:
         if _status_of(material, earlier) != "approved":
             raise _conflict("STEP_NOT_READY", f"Approve the {earlier} first.")
@@ -1031,19 +1121,21 @@ async def approve_step(
         raise _conflict("STEP_NOT_GENERATED", "There is no rubric to approve yet.")
 
     setattr(material, f"{step}_status", "approved")
-    _refresh_overall(material, approved_by=body.approved_by, notes=body.notes)
+    _refresh_overall(material, approved_by=_actor(user, body.approved_by), notes=body.notes)
     material.last_updated = datetime.now(timezone.utc)
     store.put(material)
     return material
 
 
 @router.post("/{lab_id}/check-typos", response_model=CheckTyposResponse)
-async def check_typos(lab_id: str, request: Request) -> CheckTyposResponse:
+async def check_typos(
+    lab_id: str,
+    request: Request,
+    course_id: str = CourseId,
+    user: dict = Depends(current_user),
+) -> CheckTyposResponse:
     """Run LLM proofreading across spec, quiz, and rubric."""
-    store = request.app.state.store
-    material = store.get(lab_id)
-    if material is None:
-        raise _not_found(lab_id)
+    material = _owned_lab(request, user, lab_id, course_id)
 
     llm = _llm_for(request)
     issues = await llm.check_typos(
