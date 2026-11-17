@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     # "azure" = real Azure OpenAI calls; "mock" = stub data for dev/test
     llm_backend: str = "azure"
 
+    # ── Microsoft sign-in (see auth.py) ──────────────────────────────────────
+    # The instructor UI's Microsoft app (client) ID. Empty = no check, so local
+    # dev and the tests need no sign-in.
+    auth_ms_client_id: str = ""
+    # The Microsoft directory sign-ins must come from. Default: Cal Poly.
+    auth_ms_tenant_id: str = "1b0d02db-fc9e-4495-9537-1d379cca2ae7"
+    auth_allowed_email_domain: str = "calpoly.edu"
+
     # ── Storage ───────────────────────────────────────────────────────────────
     # "memory" = dict, lost on restart.  "mongo" = MongoDB (see docs/data-model.md).
     storage_backend: str = "memory"
