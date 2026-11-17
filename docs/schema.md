@@ -9,7 +9,7 @@ validators that enforce them.
   validators and the index definitions all come from that one file, and
   `tests/test_schema.py` fails if a model gains a field that is not reflected
   there.
-- Apply with `python scripts/init_db.py` (`--show` prints without writing).
+- Apply with `python scripts/init_db.py` (`--show` prints without writing). Not against the shared database `aied`: the databases repo's `init_db.py` applies that one, and this script refuses unless you pass `--shared`. Use another `MONGODB_DB` for your own tests.
 
 Types below are BSON types as MongoDB sees them. "Required" means the validator
 rejects a document without the field.

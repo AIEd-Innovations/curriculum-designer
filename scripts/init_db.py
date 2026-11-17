@@ -4,6 +4,12 @@ Apply the collection schemas and indexes to MongoDB.
     python scripts/init_db.py          # apply
     python scripts/init_db.py --show   # print them, touch nothing
 
+The database name `aied` is the shared one every agent uses, and its schemas are applied by
+`databases/scripts/init_db.py` (the aied-db package), which covers all agents at once. This script
+only writes this agent's two collections, so running it against `aied` can overwrite validators the
+shared script set. It refuses to, unless you pass `--shared`. For your own experiments, set
+MONGODB_DB to a different name.
+
 Idempotent: creates each collection with its validator the first time, and
 updates the validator with collMod afterwards. Safe to run on every deploy.
 
@@ -35,7 +41,24 @@ def show() -> None:
             print(f"  {keys}{flag} — {why}")
 
 
+SHARED_DB = "aied"
+
+
+def shared_database_refusal(db_name: str, argv: list[str]) -> str | None:
+    """Why this run must not go ahead, or None. The shared database needs an explicit --shared."""
+    if db_name == SHARED_DB and "--shared" not in argv:
+        return (
+            f"'{SHARED_DB}' is the shared database. Its schemas are applied by databases/scripts/init_db.py "
+            "(the aied-db package), and running this script there can overwrite the validators that one set.\n"
+            "Use a different MONGODB_DB for your own tests, or pass --shared if you really mean it."
+        )
+    return None
+
+
 def apply() -> None:
+    refusal = shared_database_refusal(settings.mongodb_db, sys.argv)
+    if refusal:
+        sys.exit(refusal)
     if settings.storage_backend != "mongo":
         sys.exit("STORAGE_BACKEND is not 'mongo'. Set it in .env first.")
     if not settings.mongodb_uri or "PASTE_PASSWORD_HERE" in settings.mongodb_uri:
