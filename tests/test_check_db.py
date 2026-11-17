@@ -18,7 +18,12 @@ SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "check_db.py"
 def check_db(monkeypatch):
     import pymongo
 
-    monkeypatch.setattr(pymongo, "MongoClient", mongomock.MongoClient)
+    # One server for every connection, as a real cluster is: the script opens a
+    # second connection on purpose, to show that what it wrote is in the
+    # database and not in the process. A fresh mongomock client per call would
+    # be a fresh empty server, and that check could never pass.
+    server = mongomock.MongoClient()
+    monkeypatch.setattr(pymongo, "MongoClient", lambda *args, **kwargs: server)
 
     spec = importlib.util.spec_from_file_location("check_db", SCRIPT)
     module = importlib.util.module_from_spec(spec)
@@ -44,6 +49,8 @@ def test_happy_path_reports_ready(check_db, monkeypatch, capsys):
     assert "connected, indexes created" in out
     assert "labs: write + read + nested models OK" in out
     assert "lab_files: write + list OK" in out
+    assert "users + courses: write + read by oid + list by owner OK" in out
+    assert "survives a restart" in out
     assert "Database is ready" in out
 
 
@@ -59,6 +66,12 @@ def test_probe_rows_are_cleaned_up(check_db, monkeypatch, capsys):
 
     store = check_db.build_store("mongo", "mongodb://fake/", "aied_test")
     assert store.get(check_db.PROBE_LAB, check_db.PROBE_COURSE) is None
+
+    # The user and course it created are its own too: nothing is left in the
+    # shared tables that an instructor would see in their course list.
+    system = check_db.build_system_store("mongo", "mongodb://fake/", "aied_test")
+    assert system.get_course(check_db.PROBE_COURSE) is None
+    assert system.get_user_by_sso_subject(check_db.PROBE_SSO) is None
 
 
 def test_placeholder_password_is_caught(check_db, monkeypatch, capsys):

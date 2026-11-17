@@ -82,6 +82,10 @@ class MemorySystemStore:
         with self._lock:
             self._courses.pop(course_id, None)
 
+    def delete_user(self, user_id: str) -> None:
+        with self._lock:
+            self._users.pop(user_id, None)
+
     def close(self) -> None:
         return None
 

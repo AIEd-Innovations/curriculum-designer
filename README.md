@@ -135,4 +135,15 @@ Deployment notes:
 - **Storage:** with `STORAGE_BACKEND=memory` (the code default) a restart loses all labs and more than one replica would each hold different labs, so run a single replica. With `STORAGE_BACKEND=mongo` labs and uploaded files persist in MongoDB (set `MONGODB_URI`, keep the connection string out of the image and out of git).
 - **Generation is synchronous** and can take 30-60 seconds on a real model, so raise any proxy or ingress timeout above that.
 - **CORS** currently allows every origin (`allow_origins=["*"]` in `main.py`, marked TODO). Restrict it before exposing the service publicly.
-- There is no authentication; `instructor_id`, `approved_by` and `requested_by` are client-supplied strings.
+- **Sign-in:** set `AUTH_MS_CLIENT_ID` (and `CORS` as above) in the deployed environment, or every endpoint stays open. See **Sign-in and course ownership**.
+
+Before trusting a MongoDB deployment, run the connection check against it:
+
+```bash
+STORAGE_BACKEND=mongo python scripts/check_db.py
+```
+
+It reads `.env`, creates the indexes, writes a throwaway lab, file, user and
+course, reads them back **on a second connection** — so what survives is the
+database, not the process — and deletes them again. It never prints the
+password, and it exits non-zero on the first problem, so it can gate a deploy.
