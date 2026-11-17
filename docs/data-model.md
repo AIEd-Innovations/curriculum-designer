@@ -216,7 +216,7 @@ MONGODB_DB=aied
 string, so tests and local dev are unaffected. Run the tests with:
 
 ```bash
-python scripts/init_db.py      # create the collections, validators and indexes
+python scripts/init_db.py      # create the collections, validators and indexes (not on the shared "aied": see schema.md)
 pytest tests/ -q
 ```
 
